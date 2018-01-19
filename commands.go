@@ -2,6 +2,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -10,20 +11,63 @@ import (
 
 func (bot *Bot) CmdInterpreter(username string, usermessage string) {
 	message := strings.ToLower(usermessage)
-	tempstr := strings.Split(message, " ")
+	yogiibot_error := fmt.Sprintf("@%s - YogiiBot is being a bad dog. Let @penutty_ know and he'll spend some more time training him.", username)
 
-	for _, str := range tempstr {
-		if strings.HasPrefix(str, "https://") || strings.HasPrefix(str, "http://") {
-			go bot.Message("^ " + webTitle(str))
-		} else if isWebsite(str) {
-			go bot.Message("^ " + webTitle("http://"+str))
+	var m string
+	ok, err := bot.UserExists(username)
+	if err != nil && err != sql.ErrNoRows {
+		bot.Message(yogiibot_error)
+		return
+	}
+	if ok {
+		switch {
+		case strings.HasPrefix(message, "!nuts"):
+
+			nuts, err := bot.SelectNuts(username)
+			if err != nil {
+				bot.Message(yogiibot_error)
+				return
+			}
+			m = fmt.Sprintf("@%s - %s", username, nuts)
+
+		case strings.HasPrefix(message, "!thanks"):
+			referencedByUserName := strings.Split(message, "!thanks ")
+			ok, err := bot.UserExists(referencedByUserName[1])
+			if err != nil && err != sql.ErrNoRows {
+				bot.Message(yogiibot_error)
+				return
+			}
+
+			if ok {
+				if err = bot.CreateReference(username, referencedByUserName[1]); err != nil {
+					bot.Message(yogiibot_error)
+					break
+				}
+				if err = bot.AddNuts(referencedByUserName[1], 5); err != nil {
+					bot.Message(yogiibot_error)
+					break
+				}
+
+				m = fmt.Sprintf("Thanks %s, for recommending penutty_ to %s!", referencedByUserName[1], username)
+			} else {
+				m = fmt.Sprintf("Sorry %s, I've never smelled %s before!", username, referencedByUserName[1])
+			}
+		}
+
+	} else {
+		switch {
+		case strings.HasPrefix(message, "!getnutty"):
+			if err = bot.CreateUser(username); err != nil {
+				bot.Message(yogiibot_error)
+				break
+			}
+			m = fmt.Sprintf("Rufffff! Welcome to penutty_'s channel @%s!", username)
+		default:
+			m = fmt.Sprintf("@%s - type !getnutty to start giving commands to Yogiibot! He's a good dog.", username)
 		}
 	}
 
-	switch {
-	case strings.HasPrefix(message, "!help"):
-		bot.Message("For help on the bot please go to http://commandanddemand.com/bot.html")
-	}
+	bot.Message(m)
 
 }
 

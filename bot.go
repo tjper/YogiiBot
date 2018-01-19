@@ -87,7 +87,7 @@ func main() {
 	ircbot.Connect()
 	messagesCount := 0
 
-	pass1, err := ioutil.ReadFile("/go/bin/twitch_pass.txt")
+	pass1, err := ioutil.ReadFile("twitch_pass.txt")
 	pass := strings.Replace(string(pass1), "\n", "", 0)
 	if err != nil {
 		fmt.Println("Error reading from twitch_pass.txt.  Maybe it isn't created?")
@@ -104,7 +104,6 @@ func main() {
 	defer ircbot.CloseNuttyDB()
 	//
 
-	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/membership")
 	fmt.Fprintf(ircbot.conn, "USER %s 8 * :%s\r\n", ircbot.nick, ircbot.nick)
 	fmt.Fprintf(ircbot.conn, "PASS %s\r\n", pass)
 	fmt.Fprintf(ircbot.conn, "NICK %s\r\n", ircbot.nick)
@@ -131,11 +130,6 @@ func main() {
 			go ircbot.CmdInterpreter(username[1], usermessage)
 
 		} else if strings.Contains(line, ".tmi.twitch.tv JOIN "+ircbot.channel) {
-			userjoindata := strings.Split(line, ".tmi.twitch.tv JOIN "+ircbot.channel)
-			userjoined := strings.Split(userjoindata[0], "@")
-			if !ircbot.UserExists(userjoined[1]) {
-				ircbot.CreateUser(userjoined[1])
-			}
 		}
 	}
 

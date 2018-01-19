@@ -60,7 +60,7 @@ func (bot *Bot) CloseNuttyDB() {
 	bot.dbconn.Close()
 }
 
-func (bot *Bot) UserExists(name string) (ok bool) {
+func (bot *Bot) UserExists(name string) (ok bool, err error) {
 	query := `SELECT CASE
 			  WHEN [UserName] IS NOT NULL THEN 1
 			  ELSE 0
@@ -69,29 +69,66 @@ func (bot *Bot) UserExists(name string) (ok bool) {
 		  WHERE [UserName] = ?`
 	args := []interface{}{name}
 
-	if err := bot.dbconn.QueryRow(query, args...).Scan(&ok); err != nil {
-		fmt.Println("UserExists failed to check for user")
+	if err := bot.dbconn.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
+		fmt.Printf("Error: %s", err)
 	}
 	return
 }
 
-func (bot *Bot) CreateUser(name string) {
+func (bot *Bot) CreateUser(name string) (err error) {
 	query := `INSERT INTO [info].[Users] ([Username])
 		  VALUES(?)`
 	args := []interface{}{name}
 
-	res, err := bot.dbconn.Exec(query, args...)
-	if err != nil {
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+
 		fmt.Printf("Error: %s", err)
 		return
 	}
-	cnt, err := res.RowsAffected()
-	if err != nil {
+	return
+}
+
+func (bot *Bot) CreateReference(username, referencedByUserName string) (err error) {
+	query := `INSERT INTO [info].[References] ([UserName], [ReferencedByUserName])
+		  VALUES(?, ?)`
+	args := []interface{}{username, referencedByUserName}
+
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
 		fmt.Printf("Error: %s", err)
 		return
 	}
-	if cnt == 1 {
-		message := fmt.Sprintf("Welcome to penutty_'s channel @%s!", name)
-		bot.Message(message)
+	return
+}
+
+func (bot *Bot) AddNuts(userName string, cnt int) (err error) {
+	query := `UPDATE [info].[Users]
+		  SET NutsAllTime = NutsAllTime + ?,
+		      NutsCurrent = NutsCurrent + ?
+		  WHERE [UserName] = ?`
+	args := []interface{}{cnt, cnt, userName}
+
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
 	}
+	return
+}
+
+func (bot *Bot) SelectNuts(username string) (nuts string, err error) {
+	var (
+		nutsAllTime int
+		nutsCurrent int
+	)
+
+	query := `SELECT NutsAllTime, 
+			 NutsCurrent
+		  FROM [info].[Users]
+		  WHERE [UserName] = ?`
+	args := []interface{}{username}
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&nutsAllTime, &nutsCurrent); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	nuts = fmt.Sprintf("current = %v | all-time = %v", nutsCurrent, nutsAllTime)
+	return
 }
