@@ -87,7 +87,7 @@ func main() {
 	ircbot.Connect()
 	messagesCount := 0
 
-	pass1, err := ioutil.ReadFile("twitch_pass.txt")
+	pass1, err := ioutil.ReadFile("/go/bin/twitch_pass.txt")
 	pass := strings.Replace(string(pass1), "\n", "", 0)
 	if err != nil {
 		fmt.Println("Error reading from twitch_pass.txt.  Maybe it isn't created?")
