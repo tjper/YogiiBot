@@ -13,6 +13,6 @@ COPY . /go/src/github.com/penutty/YogiiBot
 RUN go install github.com/penutty/YogiiBot
 
 #
-ENTRYPOINT $GOPATH/bin/authservice
+ENTRYPOINT $GOPATH/bin/YogiiBot
 
 
