@@ -3,13 +3,15 @@ package main
 import (
 	"bufio"
 	"database/sql"
-	"flag"
+	"errors"
 	"fmt"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/textproto"
 	"os"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -19,21 +21,36 @@ type Bot struct {
 	nick       string
 	channel    string
 	conn       net.Conn
-	mods       map[string]bool
 	lastmsg    int64
 	maxMsgTime int64
+
+	lastMsg   map[int]time.Time
+	duel      map[string][]Vote
+	duelOpen  bool
+	duelStart time.Time
+	votees    map[int]bool
+
+	yogihashs map[string]bool
 
 	dbconn *sql.DB
 }
 
+type Vote struct {
+	userID int
+	dt     time.Time
+}
+
 func NewBot() *Bot {
 	return &Bot{
-		server:  "irc.twitch.tv",
-		port:    "6667",
-		nick:    "YogiiBot", //Change to your Twitch username
-		channel: "penutty_", //Change to your channel
-		conn:    nil,        //Don't change this
-		mods:    make(map[string]bool),
+		server:    "irc.twitch.tv",
+		port:      "6667",
+		nick:      "YogiiBot", //Change to your Twitch username
+		channel:   "penutty_", //Change to your channel
+		conn:      nil,        //Don't change this
+		lastMsg:   make(map[int]time.Time),
+		duel:      make(map[string][]Vote),
+		votees:    make(map[int]bool),
+		yogihashs: make(map[string]bool),
 	}
 }
 
@@ -76,16 +93,39 @@ func (bot *Bot) ConsoleInput() {
 	}
 }
 
+func (bot *Bot) WildYogi() {
+	var wg sync.WaitGroup
+	for {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n := (rand.Int() % 20) + 10
+			time.Sleep(time.Duration(n) * time.Minute)
+			r := RandomString(5)
+			bot.yogihashs[r] = false
+			bot.Message(fmt.Sprintf("A wild yogi has appeared! Who will catch him first? Type !findyogi %s", r))
+		}()
+		wg.Wait()
+	}
+}
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyz"
+
+func RandomString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
+}
+
 func main() {
-	channel := flag.String("channel", "penutty_", "Sets the channel for the bot to go into.")
-	nick := flag.String("nickname", "yogiibot", "The username of the bot.")
-	flag.Parse()
-	fmt.Printf("Twitch IRC Bot made in Go! https://github.com/Vaultpls/Twitch-IRC-Bot\n")
+	channel := "penutty_"
+	nick := "yogiibot"
 
 	ircbot := NewBot()
 	go ircbot.ConsoleInput()
 	ircbot.Connect()
-	messagesCount := 0
 
 	pass1, err := ioutil.ReadFile("twitch_pass.txt")
 	pass := strings.Replace(string(pass1), "\n", "", 0)
@@ -95,15 +135,18 @@ func main() {
 	}
 
 	//Prep everything
-	if !ircbot.readSettingsDB(*channel) {
-		ircbot.nick = *nick
-		ircbot.channel = "#" + *channel
+	if !ircbot.readSettingsDB(channel) {
+		ircbot.nick = nick
+		ircbot.channel = "#" + channel
 		ircbot.writeSettingsDB()
 	}
+	go ircbot.OpenAPI()
 	ircbot.OpenNuttyDB()
 	defer ircbot.CloseNuttyDB()
-	//
+	go ircbot.WildYogi()
 
+	//
+	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/tags\n")
 	fmt.Fprintf(ircbot.conn, "USER %s 8 * :%s\r\n", ircbot.nick, ircbot.nick)
 	fmt.Fprintf(ircbot.conn, "PASS %s\r\n", pass)
 	fmt.Fprintf(ircbot.conn, "NICK %s\r\n", ircbot.nick)
@@ -115,22 +158,79 @@ func main() {
 	reader := bufio.NewReader(ircbot.conn)
 	tp := textproto.NewReader(reader)
 	go ircbot.ConsoleInput()
+
 	for {
 		line, err := tp.ReadLine()
 		if err != nil {
 			break
 		}
 		fmt.Println(line)
-		if strings.Contains(line, ".tmi.twitch.tv PRIVMSG "+ircbot.channel) {
-			messagesCount++
-			userdata := strings.Split(line, ".tmi.twitch.tv PRIVMSG "+ircbot.channel)
-			username := strings.Split(userdata[0], "@")
-			usermessage := strings.Replace(userdata[1], " :", "", 1)
-			fmt.Printf(username[1] + ": " + usermessage + "\n")
-			go ircbot.CmdInterpreter(username[1], usermessage)
+		if strings.Contains(line, "PING") {
+			pongdata := strings.Split(line, "PING ")
+			fmt.Fprintf(ircbot.conn, "PONG %s\r\n", pongdata[1])
+		} else if strings.Contains(line, ".tmi.twitch.tv PRIVMSG "+ircbot.channel) {
 
-		} else if strings.Contains(line, ".tmi.twitch.tv JOIN "+ircbot.channel) {
+			m, err := lineToMap(line)
+			if err != nil {
+				fmt.Printf("Error: %s", err)
+			}
+			if m["display-name"] == "Nightbot" {
+				break
+			}
+			message := strings.Split(line, fmt.Sprintf("PRIVMSG %s :", ircbot.channel))
+			if len(message) >= 2 {
+				go ircbot.CmdInterpreter(m, message[1])
+			}
+
 		}
 	}
+}
 
+var InvalidLineFormat = errors.New("Twitch IRC Line format is invalid.")
+
+func lineToMap(line string) (map[string]string, error) {
+	m := make(map[string]string)
+	aLine := strings.Split(line, ":")
+	tLine := aLine[0]
+	sets := strings.Split(tLine, ";")
+	for _, v := range sets {
+		pair := strings.Split(v, "=")
+		if len(pair) != 2 {
+			return m, InvalidLineFormat
+		}
+		if pair[0] == "@badges" {
+			var err error
+			m, err = badgesToMap(pair)
+			if err != nil {
+				return m, err
+			}
+		} else {
+			m[pair[0]] = pair[1]
+		}
+	}
+	fmt.Printf("\n\nm = %v\n\n", m)
+	return m, nil
+}
+
+var InvalidBadgesFormat = errors.New("Twitch IRC Badge format is invalid.")
+
+func badgesToMap(badges []string) (map[string]string, error) {
+	fmt.Printf("\n\nbadges = %v\n", badges)
+	m := make(map[string]string)
+	if len(badges) != 2 {
+		return m, InvalidBadgesFormat
+	}
+	bdgs := strings.Split(badges[1], ",")
+	if len(bdgs) != 3 {
+		return m, InvalidBadgesFormat
+	}
+	for _, b := range bdgs {
+		set := strings.Split(b, "/")
+		if len(set) != 2 {
+			return m, InvalidBadgesFormat
+		}
+		m[set[0]] = set[1]
+	}
+	fmt.Printf("\n\nm = %v\n", m)
+	return m, nil
 }
