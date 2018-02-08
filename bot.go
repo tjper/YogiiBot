@@ -3,11 +3,14 @@ package main
 import (
 	"bufio"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io/ioutil"
 	"math/rand"
 	"net"
+	"net/http"
 	"net/textproto"
 	"os"
 	"strings"
@@ -32,12 +35,21 @@ type Bot struct {
 
 	yogihashs map[string]bool
 
+	bet *betRound
+
+	triviaquestion TriviaQuestion
+
 	dbconn *sql.DB
 }
 
 type Vote struct {
 	userID int
 	dt     time.Time
+}
+
+type TriviaQuestion struct {
+	Question string
+	Answer   string
 }
 
 func NewBot() *Bot {
@@ -93,6 +105,48 @@ func (bot *Bot) ConsoleInput() {
 	}
 }
 
+func (bot *Bot) TriviaQuestion() {
+	var wg sync.WaitGroup
+	for {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n := (rand.Int() % 20) + 10
+			time.Sleep(time.Duration(n) * time.Minute)
+			r, err := http.Get("https://opentdb.com/api.php?amount=1&category=15&type=multiple")
+			if err != nil {
+				fmt.Printf("TriviaQuestion - Error: %s\n", err)
+				return
+			}
+
+			type result struct {
+				Category          string
+				Type              string
+				Difficulty        string
+				Incorrect_Answers []string
+				Question          string
+				Correct_Answer    string
+			}
+			type body struct {
+				Response_code int
+				Results       []result
+			}
+
+			b := new(body)
+			if err = json.NewDecoder(r.Body).Decode(b); err != nil {
+				fmt.Printf("TriviaQuestion - Error: %s\n", err)
+				return
+			}
+			bot.triviaquestion = TriviaQuestion{
+				Question: html.EscapeString(b.Results[0].Question),
+				Answer:   html.EscapeString(b.Results[0].Correct_Answer),
+			}
+			bot.Message(fmt.Sprintf("TRIVIA: %s", bot.triviaquestion.Question))
+		}()
+		wg.Wait()
+	}
+}
+
 func (bot *Bot) WildYogi() {
 	var wg sync.WaitGroup
 	for {
@@ -141,9 +195,11 @@ func main() {
 		ircbot.writeSettingsDB()
 	}
 	go ircbot.OpenAPI()
+	go ircbot.OpenUI()
 	ircbot.OpenNuttyDB()
 	defer ircbot.CloseNuttyDB()
 	go ircbot.WildYogi()
+	go ircbot.TriviaQuestion()
 
 	//
 	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/tags\n")
@@ -175,7 +231,7 @@ func main() {
 				fmt.Printf("Error: %s", err)
 			}
 			if m["display-name"] == "Nightbot" {
-				break
+				continue
 			}
 			message := strings.Split(line, fmt.Sprintf("PRIVMSG %s :", ircbot.channel))
 			if len(message) >= 2 {
@@ -202,20 +258,18 @@ func lineToMap(line string) (map[string]string, error) {
 			var err error
 			m, err = badgesToMap(pair)
 			if err != nil {
-				return m, err
+				fmt.Printf("err: %s\n", err)
 			}
 		} else {
 			m[pair[0]] = pair[1]
 		}
 	}
-	fmt.Printf("\n\nm = %v\n\n", m)
 	return m, nil
 }
 
 var InvalidBadgesFormat = errors.New("Twitch IRC Badge format is invalid.")
 
 func badgesToMap(badges []string) (map[string]string, error) {
-	fmt.Printf("\n\nbadges = %v\n", badges)
 	m := make(map[string]string)
 	if len(badges) != 2 {
 		return m, InvalidBadgesFormat
@@ -231,6 +285,5 @@ func badgesToMap(badges []string) (map[string]string, error) {
 		}
 		m[set[0]] = set[1]
 	}
-	fmt.Printf("\n\nm = %v\n", m)
 	return m, nil
 }

@@ -111,7 +111,7 @@ func (bot *Bot) ReferenceExists(userID, referencedByUserID int) (ok bool, err er
 		  WHERE [UserID] = ?
 		  	AND [ReferencedByUserID] = ?`
 	args := []interface{}{userID, referencedByUserID}
-	if err := bot.dbconn.QueryRow(query, args).Scan(&ok); err != nil && err != sql.ErrNoRows {
+	if err := bot.dbconn.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
 		fmt.Printf("Error: %s", err)
 	}
 	return
@@ -175,6 +175,17 @@ func (bot *Bot) SelectNuts(userID int) (nuts string, err error) {
 	return
 }
 
+func (bot *Bot) SelectCurrentNuts(userID int) (currentNuts float64, err error) {
+	query := `SELECT NutsCurrent
+		  FROM [info].[Users]
+		  WHERE [UserID] = ?`
+	args := []interface{}{userID}
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&currentNuts); err != nil {
+		fmt.Printf("\nSelectCurrentNuts - Error: %s", err)
+		return
+	}
+	return
+}
 func (bot *Bot) SelectUserID(username string) (userID int, err error) {
 	query := `SELECT [UserID]
 		  FROM [info].[Users]
