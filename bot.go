@@ -39,6 +39,8 @@ type Bot struct {
 
 	triviaquestion TriviaQuestion
 
+	giftedsubqueue []string
+
 	dbconn *sql.DB
 }
 
@@ -48,8 +50,9 @@ type Vote struct {
 }
 
 type TriviaQuestion struct {
-	Question string
-	Answer   string
+	Question         string
+	Answer           string
+	IncorrectAnswers []string
 }
 
 func NewBot() *Bot {
@@ -138,10 +141,12 @@ func (bot *Bot) TriviaQuestion() {
 				return
 			}
 			bot.triviaquestion = TriviaQuestion{
-				Question: html.EscapeString(b.Results[0].Question),
-				Answer:   html.EscapeString(b.Results[0].Correct_Answer),
+				Question: html.UnescapeString(b.Results[0].Question),
+				Answer:   html.UnescapeString(b.Results[0].Correct_Answer),
 			}
-			bot.Message(fmt.Sprintf("TRIVIA: %s", bot.triviaquestion.Question))
+			for _, a := range b.Results[0].Incorrect_Answers {
+				bot.triviaquestion.IncorrectAnswers = append(bot.triviaquestion.IncorrectAnswers, html.UnescapeString(a))
+			}
 		}()
 		wg.Wait()
 	}
@@ -181,7 +186,7 @@ func main() {
 	go ircbot.ConsoleInput()
 	ircbot.Connect()
 
-	pass1, err := ioutil.ReadFile("twitch_pass.txt")
+	pass1, err := ioutil.ReadFile("/go/src/github.com/penutty/YogiiBot/twitch_pass.txt")
 	pass := strings.Replace(string(pass1), "\n", "", 0)
 	if err != nil {
 		fmt.Println("Error reading from twitch_pass.txt.  Maybe it isn't created?")

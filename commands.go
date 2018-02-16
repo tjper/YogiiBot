@@ -32,6 +32,8 @@ var (
 	fortniteCancelBet  = regexp.MustCompile(`^(\!fortnitecancelbet)$`)
 
 	trivia = regexp.MustCompile(`^(\!trivia)(\s){1}(.)+$`)
+
+	giftmesub = regexp.MustCompile(`^(\!giftmesub)$`)
 )
 
 func yogiibot_error(username string, err error) {
@@ -61,8 +63,8 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.GetNutty(m)
 	case findYogi.MatchString(message):
 		bot.FindYogi(m, message)
-		//	case giftmesub.MatchString(message):
-		//		bot.GiftMeSub(m)
+	case giftmesub.MatchString(message):
+		bot.GiftMeSub(m)
 	case trivia.MatchString(message):
 		bot.Trivia(m, message)
 	default:
@@ -71,8 +73,7 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 }
 
 func (bot *Bot) Trivia(m map[string]string, message string) {
-	emptyTQ := TriviaQuestion{}
-	if bot.triviaquestion == emptyTQ {
+	if bot.triviaquestion.Question == "" {
 		return
 	}
 
@@ -101,22 +102,31 @@ func (bot *Bot) Trivia(m map[string]string, message string) {
 	bot.triviaquestion = TriviaQuestion{}
 }
 
-//func (bot *Bot) GiftMeSub(m map[string]string) {
-//	userID, _, err := bot.getIdentifiers(m)
-//	if err != nil {
-//		return
-//	}
-//	nuts, err := bot.SelectCurrentNuts(userID)
-//	if err != nil {
-//		return
-//	}
-//
-//	if nuts < 200 {
-//		return
-//	}
-//
-//	bot.
-//}
+func (bot *Bot) GiftMeSub(m map[string]string) {
+	userID, userName, err := getIdentifiers(m)
+	if err != nil {
+		return
+	}
+
+	if !bot.isNutty(userID, userName) {
+		return
+	}
+
+	nuts, err := bot.SelectCurrentNuts(userID)
+	if err != nil {
+		return
+	}
+
+	cost := 200.00
+	if nuts < cost {
+		return
+	}
+
+	bot.giftedsubqueue = append(bot.giftedsubqueue, userName)
+	if err = bot.RemoveNuts(userID, cost); err != nil {
+		fmt.Printf("GiftMeSub - Error: %s", err)
+	}
+}
 
 type betRound struct {
 	open          bool

@@ -9,8 +9,9 @@ import (
 )
 
 func (bot *Bot) OpenAPI() {
-	http.HandleFunc("/duel", bot.HandleDuel)
 	http.HandleFunc("/fortnitebet", bot.GetFortniteBet)
+	http.HandleFunc("/triviaquestion", bot.GetTriviaQuestion)
+	http.HandleFunc("/giftedsub", bot.GetGiftedSub)
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
@@ -19,14 +20,7 @@ func (bot *Bot) GetFortniteBet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-
-	type Body struct {
-		StartTime time.Time
-		Win       int
-		Lose      int
-	}
+	w = setHeaders(w)
 
 	if bot.bet == nil {
 		w.WriteHeader(http.StatusNoContent)
@@ -38,6 +32,11 @@ func (bot *Bot) GetFortniteBet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	type Body struct {
+		StartTime time.Time
+		Win       int
+		Lose      int
+	}
 	b := &Body{
 		StartTime: bot.bet.startTime,
 		Win:       bot.bet.totalWinBets,
@@ -49,32 +48,62 @@ func (bot *Bot) GetFortniteBet(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (bot *Bot) HandleDuel(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
+func (bot *Bot) GetTriviaQuestion(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("In GetTriviaQuestion")
+	if r.Method != http.MethodGet {
 		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		return
+	}
+	w = setHeaders(w)
+
+	fmt.Printf("\nquestion = %s", bot.triviaquestion.Question)
+
+	if bot.triviaquestion.Question == "" {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
 	type Body struct {
-		Command string
-		Noun    string
+		Question string
+		Answers  []string
 	}
-	b := new(Body)
-	if err := json.NewDecoder(r.Body).Decode(b); err != nil {
-		fmt.Printf("err = %s\n", err)
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	b := &Body{
+		Question: bot.triviaquestion.Question,
+		Answers:  append(bot.triviaquestion.IncorrectAnswers, bot.triviaquestion.Answer),
+	}
+
+	if err := json.NewEncoder(w).Encode(b); err != nil {
+		fmt.Printf("GetTriviaQuestion - Error: %s", err)
+	}
+}
+
+func (bot *Bot) GetGiftedSub(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+		return
+	}
+	w = setHeaders(w)
+
+	if len(bot.giftedsubqueue) == 0 {
+		w.WriteHeader(http.StatusNoContent)
 		return
 	}
 
-	m := map[string]string{"mod": "1"}
-	switch b.Command {
-	case "!duel":
-		bot.Duel(m)
-	case "!duelcancel":
-		bot.DuelCancel(m)
-	case "!duelwinner":
-		bot.DuelWinner(m, fmt.Sprintf("%s %s", b.Command, b.Noun))
-	default:
-		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+	type Body struct {
+		UserName string
 	}
+	b := &Body{
+		UserName: bot.giftedsubqueue[0],
+	}
+	bot.giftedsubqueue = bot.giftedsubqueue[1:]
+
+	if err := json.NewEncoder(w).Encode(b); err != nil {
+		fmt.Printf("GetGiftedSub - Error: %s", err)
+	}
+}
+
+func setHeaders(w http.ResponseWriter) http.ResponseWriter {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	return w
 }

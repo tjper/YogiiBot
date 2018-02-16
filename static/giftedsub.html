@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<title>Page Title</title>
+<style>
+body {
+	font-family: "Arial";
+	font-weight: 500;
+	font-size: x-large;
+	color: white;
+}
+.from {
+	font-size: xx-large;
+	text-align: right;
+	padding-top: 10px;
+}
+.username {
+	display: inline-block;
+}
+.request {
+	position: absolute;
+	left: 100%;
+	padding: 15px;
+	height: 100px;
+	width: 500px;
+	background-color: #be6e14;
+}
+
+
+</style>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.1.0/jquery.min.js"></script>
+	</head>
+	<body>
+		<div class="request">I gave my nuts for a gifted sub request! ..Someone? ..Please?<div class="from">- <div class="username"></div></div></div>	
+	</body>
+
+	<script>
+		setInterval(function() { 
+			$.get("http://192.168.1.5:8080/giftedsub", function(data, status) {
+				if (status == "success") {
+					$(".username").text(data.UserName);
+					$(".request").animate({"left": '-=100%'}, 500).delay(12000).animate({"left": '+=100%'}, 1000);
+				} 
+			});
+		}, 15000);
+	</script>
+</html>
+
