@@ -186,7 +186,7 @@ func main() {
 	go ircbot.ConsoleInput()
 	ircbot.Connect()
 
-	pass1, err := ioutil.ReadFile("/go/src/github.com/penutty/YogiiBot/twitch_pass.txt")
+	pass1, err := ioutil.ReadFile("twitch_pass.txt")
 	pass := strings.Replace(string(pass1), "\n", "", 0)
 	if err != nil {
 		fmt.Println("Error reading from twitch_pass.txt.  Maybe it isn't created?")
