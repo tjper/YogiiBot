@@ -35,7 +35,7 @@ type Bot struct {
 
 	yogihashs map[string]bool
 
-	bet *betRound
+//	bet *betRound
 
 	triviaquestion TriviaQuestion
 
@@ -60,7 +60,7 @@ func NewBot() *Bot {
 		server:    "irc.twitch.tv",
 		port:      "6667",
 		nick:      "YogiiBot", //Change to your Twitch username
-		channel:   "penutty_", //Change to your channel
+		channel:   "penutty", //Change to your channel
 		conn:      nil,        //Don't change this
 		lastMsg:   make(map[int]time.Time),
 		duel:      make(map[string][]Vote),
@@ -179,7 +179,7 @@ func RandomString(n int) string {
 }
 
 func main() {
-	channel := "penutty_"
+	channel := "penutty"
 	nick := "yogiibot"
 
 	ircbot := NewBot()
@@ -199,7 +199,6 @@ func main() {
 		ircbot.channel = "#" + channel
 		ircbot.writeSettingsDB()
 	}
-	go ircbot.OpenAPI()
 	go ircbot.OpenUI()
 	ircbot.OpenNuttyDB()
 	defer ircbot.CloseNuttyDB()

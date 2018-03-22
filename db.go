@@ -102,15 +102,14 @@ func (bot *Bot) CreateUser(name string, userID int) (err error) {
 	return
 }
 
-func (bot *Bot) ReferenceExists(userID, referencedByUserID int) (ok bool, err error) {
+func (bot *Bot) ReferenceExists(userID int) (ok bool, err error) {
 	query := `SELECT CASE
 			  WHEN [UserID] IS NOT NULL THEN 1
 			  ELSE 0
 			 END
 		  FROM [info].[References]
-		  WHERE [UserID] = ?
-		  	AND [ReferencedByUserID] = ?`
-	args := []interface{}{userID, referencedByUserID}
+		  WHERE [UserID] = ?`
+	args := []interface{}{userID}
 	if err := bot.dbconn.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
 		fmt.Printf("Error: %s", err)
 	}
@@ -129,23 +128,9 @@ func (bot *Bot) CreateReference(userID, referencedByUserID int) (err error) {
 	return
 }
 
-func (bot *Bot) AddNuts(userID int, cnt float64, cntT float64) (err error) {
+func (bot *Bot) AddChatPoints(userID int, cnt float64) (err error) {
 	query := `UPDATE [info].[Users]
-		  SET NutsTotal= NutsTotal + ?,
-		      NutsCurrent = NutsCurrent + ?
-		  WHERE [UserID] = ?`
-	args := []interface{}{cntT, cnt, userID}
-
-	if _, err = bot.dbconn.Exec(query, args...); err != nil {
-		fmt.Printf("Error: %s", err)
-		return
-	}
-	return
-}
-
-func (bot *Bot) RemoveNuts(userID int, cnt float64) (err error) {
-	query := `UPDATE [info].[Users]
-		  SET NutsCurrent = NutsCurrent - ?
+		  SET ChatPoints = ChatPoints + ?
 		  WHERE [UserID] = ?`
 	args := []interface{}{cnt, userID}
 
@@ -156,36 +141,56 @@ func (bot *Bot) RemoveNuts(userID int, cnt float64) (err error) {
 	return
 }
 
-func (bot *Bot) SelectNuts(userID int) (nuts string, err error) {
-	var (
-		nutsAllTime float64
-		nutsCurrent float64
-	)
-
-	query := `SELECT NutsTotal,
-			 NutsCurrent
-		  FROM [info].[Users]
+func (bot *Bot) AddNuts(userID int, cnt float64) (err error) {
+	query := `UPDATE [info].[Users]
+		  SET Nuts = Nuts + ?
 		  WHERE [UserID] = ?`
-	args := []interface{}{userID}
-	if err = bot.dbconn.QueryRow(query, args...).Scan(&nutsAllTime, &nutsCurrent); err != nil {
+	args := []interface{}{cnt, userID}
+
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
 		fmt.Printf("Error: %s", err)
 		return
 	}
-	nuts = fmt.Sprintf("current = %v | all-time = %v", nutsCurrent, nutsAllTime)
 	return
 }
 
-func (bot *Bot) SelectCurrentNuts(userID int) (currentNuts float64, err error) {
-	query := `SELECT NutsCurrent
-		  FROM [info].[Users]
+func (bot *Bot) RemoveNuts(userID int, cnt float64) (err error) {
+	query := `UPDATE [info].[Users]
+		  SET Nuts = Nuts - ?
 		  WHERE [UserID] = ?`
-	args := []interface{}{userID}
-	if err = bot.dbconn.QueryRow(query, args...).Scan(&currentNuts); err != nil {
-		fmt.Printf("\nSelectCurrentNuts - Error: %s", err)
+	args := []interface{}{cnt, userID}
+
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+		fmt.Printf("Error: %s", err)
 		return
 	}
 	return
 }
+
+func (bot *Bot) SelectChatPoints(userID int) (points float64, err error) {
+	query := `SELECT ChatPoints 
+		  FROM [info].[Users]
+		  WHERE [UserID] = ?`
+	args := []interface{}{userID}
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&points); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}
+
+func (bot *Bot) SelectNuts(userID int) (nuts float64, err error) {
+	query := `SELECT Nuts
+		  FROM [info].[Users]
+		  WHERE [UserID] = ?`
+	args := []interface{}{userID}
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&nuts); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}
+
 func (bot *Bot) SelectUserID(username string) (userID int, err error) {
 	query := `SELECT [UserID]
 		  FROM [info].[Users]
