@@ -259,3 +259,27 @@ func (bot *Bot) InsertRedem(userID int, itemID int, cost float64) (err error) {
 	}
 	return
 }
+
+func (bot *Bot) SelectSubStatus(userID int) (status bool, err error) {
+	query := `SELECT [HasSubbed]
+		  FROM [info].[Users]
+		  WHERE [UserID] = ?`
+	args := []interface{}{userID}
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&status); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}
+
+func (bot *Bot) UpdateSubStatus(userID int) (err error) {
+	query := `UPDATE [info].[Users]
+		  SET [HasSubbed] = 1
+		  WHERE [UserID] = ?`
+	args := []interface{}{userID}
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}

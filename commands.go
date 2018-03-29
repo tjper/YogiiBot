@@ -34,113 +34,143 @@ var (
 	redemvbucks = regexp.MustCompile(`^(\!redem)(\s){1}(vbucks)$`)
 )
 
-func yogiibot_error(username string, err error) {
-	fmt.Printf("\nyogiibot had failed with error: %s on user %s.", err, username)
-	return
-}
-
 func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 	message := strings.ToLower(usermessage)
+	u, err := bot.NewUser(m)
+	if err != nil {
+		fmt.Printf("Error - CmdInterpreter: %s", err)
+	}
+	if !bot.isNutty(u) {
+		bot.GetNutty(u)
+	}
 
 	switch {
 	case win.MatchString(message):
-		bot.Win(m, message)
+		bot.Win(u, message)
 	case lose.MatchString(message):
-		bot.Lose(m, message)
+		bot.Lose(u, message)
 	case fortniteBet.MatchString(message):
-		bot.FortniteBet(m)
+		bot.FortniteBet(u)
 	case fortniteEndBet.MatchString(message):
-		bot.FortniteEndBet(m)
+		bot.FortniteEndBet(u)
 	case fortniteCancelBet.MatchString(message):
-		bot.FortniteCancelBet(m)
+		bot.FortniteCancelBet(u)
 	case fortniteResolveBet.MatchString(message):
-		bot.FortniteResolveBet(m, message)
+		bot.FortniteResolveBet(u, message)
 	case points.MatchString(message):
-		bot.Points(m)
+		bot.Points(u)
 	case nuts.MatchString(message):
-		bot.Nuts(m)
+		bot.Nuts(u)
 	case thanks.MatchString(message):
-		bot.Thanks(m, message)
-	case getnutty.MatchString(message):
-		bot.GetNutty(m)
+		bot.Thanks(u, message)
 	case findYogi.MatchString(message):
-		bot.FindYogi(m, message)
+		bot.FindYogi(u, message)
 //	case trivia.MatchString(message):
 //		bot.Trivia(m, message)
 	case leaderboard.MatchString(message):
-		bot.LeaderBoard(m)
+		bot.LeaderBoard(u)
 	case redemduo.MatchString(message):
-		bot.RedemDuo(m)
+		bot.RedemDuo(u)
 	case redemvbucks.MatchString(message):
-		bot.RedemVBucks(m)
+		bot.RedemVBucks(u)
 	default:
-		bot.Default(m)
+		bot.Default(u)
 	}
 }
 
-func (bot *Bot) UserNotice(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("Error: %s", err)
-		return
+type User struct {
+	Id int
+	Name string
+	IsSubscriber bool
+	IsMod bool
+	IsBroadcaster bool
+}
+	
+var ErrorInvalidIdentifiers = errors.New("Invalid user identifiers.")
+
+func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
+	u = new(User)
+	tuserID, ok := m["user-id"]
+	if !ok {
+		return u, ErrorInvalidIdentifiers
 	}
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)
+	u.Id, err = strconv.Atoi(tuserID)
+	if err != nil {
+		return u, err
 	}
 
-	switch {
-	case m["msg-id"] == "sub":
-		if err := bot.AddNuts(userID, 1.00); err != nil {
-			fmt.Printf("Error - UserNotice: %s", err)
-			return
+	u.Name, ok = m["display-name"]
+	if !ok {
+		return u, ErrorInvalidIdentifiers
+	}
+
+	u.IsMod = isMod(m)
+	u.IsBroadcaster = isBroadcaster(m)
+	u.IsSubscriber = isSubscriber(m)
+	
+	if u.IsSubscriber {
+		registered, err := bot.SelectSubStatus(u.Id)
+		if err != nil {
+			return u, err 
+		}
+		if registered {
+			return u, nil
+		}
+		if err := bot.UpdateSubStatus(u.Id); err != nil {
+			return u, err
+		}
+		if err := bot.AddNuts(u.Id, 0.5); err != nil {
+			return u, err
 		}
 	}
+
+	return u, nil
 }
 
-func (bot *Bot) RedemDuo(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("Error: %s", err)
-		return
+func isMod(m map[string]string) bool {
+	if m["mod"] != "1" {
+		return false
 	}
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)
-		return
+	return true
+}
+func isBroadcaster(m map[string]string) bool {
+	if m["broadcaster"] != "1" {
+		return false
 	}
+	return true
+}
+func isSubscriber(m map[string]string) bool {
+	if m["subscriber"] != "1" {
+		return false
+	}
+	return true
+}
+
+func (bot *Bot) RedemDuo(u *User) {
 
 	cost := 2.00
 	duo := 1
-	nuts, err := bot.SelectNuts(userID)
+	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
-		yogiibot_error(userName, err)
 		return
 	}
 	if nuts < cost {
 		return
 	}
-	if err := bot.InsertRedem(userID, duo, cost); err != nil {
+	if err := bot.InsertRedem(u.Id, duo, cost); err != nil {
 		return
 	}
-	if err := bot.RemoveNuts(userID, cost); err != nil {
+	if err := bot.RemoveNuts(u.Id, cost); err != nil {
 		fmt.Printf("RemoveNuts - Error: %s\n", err)
 		return
 	}
-	bot.Message(fmt.Sprintf("@%s has redeemed DUOS!", userName))
+	bot.Message(fmt.Sprintf("@%s has redeemed DUOS!", u.Name))
 }
 
-func (bot *Bot) RedemVBucks(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("Error: %s", err)
-		return
-	}
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)
-		return
-	}
+func (bot *Bot) RedemVBucks(u *User) {
 	cost := 8.00
 	vbucks := 2
-	nuts, err := bot.SelectNuts(userID)
+	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
 		fmt.Printf("SelectNuts - Error: %s\n", err)
 		return
@@ -148,30 +178,21 @@ func (bot *Bot) RedemVBucks(m map[string]string) {
 	if nuts < cost {
 		return	
 	}
-	if err := bot.InsertRedem(userID, vbucks, cost); err != nil {
+	if err := bot.InsertRedem(u.Id, vbucks, cost); err != nil {
 		return
 	}
-	if err := bot.RemoveNuts(userID, cost); err != nil {
+	if err := bot.RemoveNuts(u.Id, cost); err != nil {
 		fmt.Printf("RemoveNuts - Error: %s\n", err)
 		return
 	}
-	bot.Message(fmt.Sprintf("@%s has redeemed VBUCKS!", userName))
+	bot.Message(fmt.Sprintf("@%s has redeemed VBUCKS!", u.Name))
 }
 
-func (bot *Bot) LeaderBoard(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("Error: %s", err)
-		return
-	}
-
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)	
-	}
+func (bot *Bot) LeaderBoard(u *User) {
 
 	set, err := bot.SelectTopUsersByNuts()
 	if err != nil {
-		fmt.Printf("Error: %s", err)
+		fmt.Printf("Error - LeaderBoard: %s", err)
 		return
 	}
 	
@@ -212,127 +233,71 @@ func (bot *Bot) LeaderBoard(m map[string]string) {
 //	bot.triviaquestion = TriviaQuestion{}
 //}
 
-func (bot *Bot) Points(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
+func (bot *Bot) Points(u *User) {
+	points, err := bot.SelectChatPoints(u.Id)
 	if err != nil {
-		fmt.Printf("Error: %s", err)
 		return
 	}
-
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)	
-	}
-
-	points, err := bot.SelectChatPoints(userID)
-	if err != nil {
-		yogiibot_error(userName, err)
-		return
-	}
-	bot.Message(fmt.Sprintf("@%s - Chat Points = %v", userName, points))
+	bot.Message(fmt.Sprintf("@%s - Chat Points = %v", u.Name, points))
 }
 
-func (bot *Bot) Nuts(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
+func (bot *Bot) Nuts(u *User) {
+	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
-		fmt.Printf("Error: %s", err)
 		return
 	}
-
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)
-	}
-
-	nuts, err := bot.SelectNuts(userID)
-	if err != nil {
-		yogiibot_error(userName, err)
-		return
-	}
-	bot.Message(fmt.Sprintf("@%s - Nuts = %v", userName, nuts))
+	bot.Message(fmt.Sprintf("@%s - Nuts = %v", u.Name, nuts))
 }
 
-func (bot *Bot) Thanks(m map[string]string, message string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("\nThanks - Error: %s", err)
-		return
-	}
-	
+func (bot *Bot) Thanks(u *User, message string) {
 	reward := 1.00
 	a := strings.Split(message, "!thanks ")
 	referencedByUserName := a[1]
 
 	referencedByUserID, err := bot.SelectUserID(referencedByUserName)
 	if err != nil && err != sql.ErrNoRows {
-		yogiibot_error(userName, err)
 		return
 	}
 
 	switch {
-	case !bot.isNutty(userID, userName):
-		bot.GetNutty(m)	
-	case !bot.isSubscriber(m):
+	case !u.IsSubscriber:
 		return
-	case userName == referencedByUserName:
-		fmt.Printf("\n%s- attempted to thank themself.", userName)
+	case u.Name == referencedByUserName:
+		fmt.Printf("\n%s- attempted to thank themself.", u.Name)
 		return
-	case !bot.isNutty(referencedByUserID, userName):
-		fmt.Printf("\n%s - attempted to thank someone who hasn't ran !getnutty.", userName, referencedByUserName)
+	case !bot.isNutty(&User{ Id: referencedByUserID, Name: referencedByUserName} ):
+		fmt.Printf("\n%s - attempted to thank someone who hasn't ran !getnutty.", u.Name, referencedByUserName)
 		return
 	}
 
-	ok, err := bot.ReferenceExists(userID)
+	ok, err := bot.ReferenceExists(u.Id)
 	switch {
 	case err != nil && err != sql.ErrNoRows:
-		yogiibot_error(userName, err)
 		return
 	case ok:
-		fmt.Printf("@%s you already thanked another user!", userName, referencedByUserName)
+		fmt.Printf("@%s you already thanked another user!", u.Name, referencedByUserName)
 		return
 	}
 
-	if err := bot.CreateReference(userID, referencedByUserID); err != nil && err != sql.ErrNoRows {
-		yogiibot_error(userName, err)
+	if err := bot.CreateReference(u.Id, referencedByUserID); err != nil && err != sql.ErrNoRows {
 		return
 	}
 	if err := bot.AddNuts(referencedByUserID, reward); err != nil {
-		yogiibot_error(userName, err)
 		return
 	}
 
-	bot.Message(fmt.Sprintf("Thanks @%s, for recommending penutty_ to @%s! You've earned %v nut!", referencedByUserName, userName, reward))
+	bot.Message(fmt.Sprintf("Thanks @%s, for recommending penutty_ to @%s! You've earned %v nut!", referencedByUserName, u.Name, reward))
 
 }
 
-func (bot *Bot) GetNutty(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("\nGetNutty - Error: %s", err)
+func (bot *Bot) GetNutty(u *User) {
+	if err := bot.CreateUser(u.Name, u.Id); err != nil {
 		return
 	}
-
-	if bot.isNutty(userID, userName) {
-		fmt.Printf("\n%s - Is already nutty", userName)
-		return
-	}
-	if err := bot.CreateUser(userName, userID); err != nil {
-		yogiibot_error(userName, err)
-		return
-	}
-	bot.Message(fmt.Sprintf("Rufffff! Welcome @%s! Scroll down to the info section to see what commands you can use!", userName))
-
+	bot.Message(fmt.Sprintf("Rufffff! Welcome @%s! Scroll down to the info section to see what commands you can use!", u.Name))
 }
 
-func (bot *Bot) FindYogi(m map[string]string, message string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("FindYogi - Error: %s", err)
-		return
-	}
-
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)	
-	}
-
+func (bot *Bot) FindYogi(u *User, message string) {
 	reward := 3.00
 	a := strings.Split(message, "!findyogi ")
 	hash := a[1]
@@ -343,82 +308,34 @@ func (bot *Bot) FindYogi(m map[string]string, message string) {
 	}
 
 	bot.yogihashs[hash] = true
-	if err := bot.AddChatPoints(userID, reward); err != nil {
+	if err := bot.AddChatPoints(u.Id, reward); err != nil {
 		fmt.Errorf("Error: %s\n", err)
 		return
 	}
-	bot.Message(fmt.Sprintf("@%s found Yogi!!! You've been rewarded %v chat points.", userName, reward))
+	bot.Message(fmt.Sprintf("@%s found Yogi!!! You've been rewarded %v chat points.", u.Name, reward))
 }
 
-func (bot *Bot) Default(m map[string]string) {
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("Error: %s", err)
-		return
-	}
-	lastMsg, ok := bot.lastMsg[userID]
+func (bot *Bot) Default(u *User) {
+	lastMsg, ok := bot.lastMsg[u.Id]
 	if ok && time.Since(lastMsg) <= 10*time.Minute {
 		return
 	}
 
 	reward := 1.00
-	if !bot.isNutty(userID, userName) {
-		bot.GetNutty(m)	
-	}
-	if err := bot.AddChatPoints(userID, reward); err != nil {
-		yogiibot_error(userName, err)
+	if err := bot.AddChatPoints(u.Id, reward); err != nil {
 		return
 	}
 
-	bot.lastMsg[userID] = time.Now()
+	bot.lastMsg[u.Id] = time.Now()
 }
 
-var ErrorInvalidIdentifiers = errors.New("Invalid user identifiers.")
 
-func getIdentifiers(m map[string]string) (userID int, userName string, err error) {
-	tuserID, ok := m["user-id"]
-	if !ok {
-		return 0, "", ErrorInvalidIdentifiers
-	}
-	userID, err = strconv.Atoi(tuserID)
-	if err != nil {
-		return 0, "", err
-	}
-
-	userName, ok = m["display-name"]
-	if !ok {
-		return 0, "", ErrorInvalidIdentifiers
-	}
-
-	return userID, userName, nil
-}
-
-func (bot *Bot) isNutty(userID int, username string) bool {
-	ok, err := bot.UserIDExists(userID)
+func (bot *Bot) isNutty(u *User) bool {
+	ok, err := bot.UserIDExists(u.Id)
 	if err != nil && err != sql.ErrNoRows {
 		fmt.Printf("\nisNutty - Error: %s", err)
-		yogiibot_error(username, err)
 	}
 	return ok
-}
-
-func (bot *Bot) isMod(m map[string]string) bool {
-	if m["mod"] != "1" {
-		return false
-	}
-	return true
-}
-func (bot *Bot) isBroadcaster(m map[string]string) bool {
-	if m["broadcaster"] != "1" {
-		return false
-	}
-	return true
-}
-func (bot *Bot) isSubscriber(m map[string]string) bool {
-	if m["subscriber"] != "1" {
-		return false
-	}
-	return true
 }
 
 type betRound struct {
@@ -436,8 +353,8 @@ type bet struct {
 	amount float64 
 }
 
-func (bot *Bot) FortniteBet(m map[string]string) {
-	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+func (bot *Bot) FortniteBet(u *User) {
+	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
 
@@ -454,22 +371,22 @@ func (bot *Bot) FortniteBet(m map[string]string) {
 	bot.Message("BETTING BEGINS")
 }
 
-func (bot *Bot) FortniteEndBet(m map[string]string) {
-	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+func (bot *Bot) FortniteEndBet(u *User) {
+	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
 	bot.bet.open = false
 	bot.Message("BETTING ENDS")
 }
 
-func (bot *Bot) FortniteResolveBet(m map[string]string, message string) {
+func (bot *Bot) FortniteResolveBet(u *User, message string) {
 	if bot.bet == nil {
 		return
 	}
 	if bot.bet.open {
 		return
 	}
-	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
 	if len(bot.bet.winBets) == 0 || len(bot.bet.loseBets) == 0 {
@@ -501,7 +418,7 @@ func (bot *Bot) FortniteResolveBet(m map[string]string, message string) {
 	}
 
 	for _, b := range profitors {
-		reward := float64(totalDebits) * (b.amount / float64(totalProfits))
+		reward := totalDebits * (b.amount / totalProfits)
 		if err := bot.AddNuts(b.userID, reward); err != nil {
 			fmt.Printf("FortniteResolveBet - AddNuts - Error: %s\n", err)
 			return
@@ -516,11 +433,11 @@ func (bot *Bot) FortniteResolveBet(m map[string]string, message string) {
 	}
 }
 
-func (bot *Bot) FortniteCancelBet(m map[string]string) {
+func (bot *Bot) FortniteCancelBet(u *User) {
 	if bot.bet == nil {
 		return
 	}
-	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
 
@@ -535,20 +452,15 @@ func (bot *Bot) FortniteCancelBet(m map[string]string) {
 	bot.Message("BET CANCELLED.")
 }
 
-func (bot *Bot) Win(m map[string]string, message string) {
+func (bot *Bot) Win(u *User, message string) {
 	if bot.bet == nil {
 		return
 	}
 	if !bot.bet.open {
 		return
 	}
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("\nWin - Error: %s", err)
-		return
-	}
 
-	if _, ok := bot.bet.betees[userID]; ok {
+	if _, ok := bot.bet.betees[u.Id]; ok {
 		return
 	}
 
@@ -558,7 +470,7 @@ func (bot *Bot) Win(m map[string]string, message string) {
 		fmt.Printf("\nWin - Error: %s", err)
 	}
 
-	nuts, err := bot.SelectNuts(userID)
+	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
 		fmt.Printf("\nLose - Error: %s", err)
 		return
@@ -567,28 +479,22 @@ func (bot *Bot) Win(m map[string]string, message string) {
 		return
 	}
 
-	b := &bet{userID, amount}
+	b := &bet{u.Id, amount}
 	bot.bet.winBets = append(bot.bet.winBets, b)
 	bot.bet.totalWinBets += amount
-	bot.bet.betees[userID] = true
-	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty winning!", userName, amount))
+	bot.bet.betees[u.Id] = true
+	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty winning!", u.Name, amount))
 }
 
-func (bot *Bot) Lose(m map[string]string, message string) {
+func (bot *Bot) Lose(u *User, message string) {
 	if bot.bet == nil {
 		return
 	}
 	if !bot.bet.open {
 		return
 	}
-	userID, userName, err := getIdentifiers(m)
-	if err != nil {
-		fmt.Printf("\nLose - Error: %s", err)
-		return
-	}
-	fmt.Printf("\n\nIn Lose\n\n")
 
-	if _, ok := bot.bet.betees[userID]; ok {
+	if _, ok := bot.bet.betees[u.Id]; ok {
 		return
 	}
 
@@ -599,7 +505,7 @@ func (bot *Bot) Lose(m map[string]string, message string) {
 		return
 	}
 
-	nuts, err := bot.SelectNuts(userID)
+	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
 		fmt.Printf("\nLose - Error: %s", err)
 		return
@@ -608,91 +514,12 @@ func (bot *Bot) Lose(m map[string]string, message string) {
 		return
 	}
 
-	b := &bet{userID, amount}
+	b := &bet{u.Id, amount}
 	bot.bet.loseBets = append(bot.bet.loseBets, b)
 	bot.bet.totalLoseBets += amount
-	bot.bet.betees[userID] = true
-	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", userName, amount))
+	bot.bet.betees[u.Id] = true
+	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", u.Name, amount))
 
 }
 
-//func (bot *Bot) Duel(m map[string]string) {
-//	if !bot.isMod(m) && !bot.isBroadcaster(m) {
-//		return
-//	}
-//	if bot.duelOpen {
-//		return
-//	}
-//
-//	bot.duel = make(map[string][]Vote)
-//	bot.duelOpen = true
-//	bot.duelStart = time.Now()
-//	bot.Message("DUEL START")
-//	bot.Message("!penutty - bet on penutty")
-//	bot.Message("!opponent - bet on the opponent")
-//}
-//
-//func (bot *Bot) DuelWinner(m map[string]string, message string) {
-//	if !bot.duelOpen {
-//		return
-//	}
-//	if !bot.isMod(m) && !bot.isBroadcaster(m) {
-//		return
-//	}
-//
-//	a := strings.Split(message, "!duelwinner ")
-//	winner := a[1]
-//	bot.duelOpen = false
-//	duelLength := time.Since(bot.duelStart).Seconds()
-//
-//	var nuts, winners float64
-//	for _, a := range bot.duel {
-//		nuts += float64(len(a))
-//	}
-//	winners = float64(len(bot.duel[winner]))
-//	minPoints := 1.00
-//	maxPoints := float64(math.Ceil(nuts / winners))
-//
-//	for _, v := range bot.duel[winner] {
-//		points := (v.dt.Sub(bot.duelStart).Seconds() / duelLength) * maxPoints
-//		if points < minPoints {
-//			points = minPoints
-//		}
-//		if err := bot.AddNuts(v.userID, points, points-1); err != nil {
-//			fmt.Printf("Error: %s", err)
-//			return
-//		}
-//	}
-//
-//	bot.duel = make(map[string][]Vote)
-//	bot.votees = make(map[int]bool)
-//	bot.Message(fmt.Sprintf("%s has won!", winner))
-//}
-//
-//func (bot *Bot) DuelCancel(m map[string]string) {
-//	if !bot.duelOpen {
-//		return
-//	}
-//	if !bot.isMod(m) && !bot.isBroadcaster(m) {
-//		return
-//	}
-//	for _, v := range bot.duel["penutty"] {
-//		if err := bot.AddNuts(v.userID, 1.00, 0.00); err != nil {
-//			fmt.Printf("Error: %s", err)
-//			return
-//		}
-//	}
-//	for _, v := range bot.duel["opponent"] {
-//		if err := bot.AddNuts(v.userID, 1.00, 0.00); err != nil {
-//			fmt.Printf("Error: %s", err)
-//			return
-//		}
-//
-//	}
-//	bot.duel = make(map[string][]Vote)
-//	bot.votees = make(map[int]bool)
-//	bot.duelOpen = false
-//	bot.Message("DUEL CANCELLED")
-//}
-//
 

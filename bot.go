@@ -243,13 +243,7 @@ func main() {
 				go ircbot.CmdInterpreter(m, message[1])
 			}
 
-		} else if strings.Contains(line, ":tmi.twitch.tv USERNOTICE "+ircbot.channel) {
-			m, err := lineToMap(line)
-			if err != nil {
-				fmt.Printf("Error: %s", err)
-			}
-			go ircbot.UserNotice(m)
-		}
+		} 
 	}
 }
 
