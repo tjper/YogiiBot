@@ -17,25 +17,21 @@ var (
 	thanks   = regexp.MustCompile(`^(\!thanks)(\s){1}([a-zA-Z0-9_]){4,25}$`)
 	getnutty = regexp.MustCompile(`^(\!getnutty)$`)
 
-	duel       = regexp.MustCompile(`^(\!duel)$`)
-	duelwinner = regexp.MustCompile(`^(\!duelwinner)(\s){1}(penutty|opponent){1}$`)
-	duelcancel = regexp.MustCompile(`^(\!duelcancel)$`)
-	penutty    = regexp.MustCompile(`^(\!penutty)$`)
-	opponent   = regexp.MustCompile(`^(\!opponent)$`)
-
 	findYogi = regexp.MustCompile(`^(\!findyogi)(\s){1}([a-zA-z]){5}$`)
 
-	win                = regexp.MustCompile(`^(\!win)(\s){1}([0-9]){1,3}$`)
-	lose               = regexp.MustCompile(`^(\!lose)(\s){1}([0-9]){1,3}$`)
+	win                = regexp.MustCompile(`^(\!win)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
+	lose               = regexp.MustCompile(`^(\!lose)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
 	fortniteBet        = regexp.MustCompile(`^(\!fortnitebet)$`)
+	fortniteEndBet	   = regexp.MustCompile(`^(\!fortniteendbet)$`)
 	fortniteResolveBet = regexp.MustCompile(`^(\!fortniteresolvebet)(\s){1}(win|lose){1}$`)
 	fortniteCancelBet  = regexp.MustCompile(`^(\!fortnitecancelbet)$`)
 
 	trivia = regexp.MustCompile(`^(\!trivia)(\s){1}(.)+$`)
 
-	giftmesub = regexp.MustCompile(`^(\!giftmesub)$`)
-
-	reference = regexp.MustCompile(`^(\!reference)(\s){1}([a-zA-Z0-9_]){4,25}$`)
+	leaderboard = regexp.MustCompile(`^(\!leaderboard)$`)
+	
+	redemduo = regexp.MustCompile(`^(\!redem)(\s){1}(duo)$`)
+	redemvbucks = regexp.MustCompile(`^(\!redem)(\s){1}(vbucks)$`)
 )
 
 func yogiibot_error(username string, err error) {
@@ -47,16 +43,18 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 	message := strings.ToLower(usermessage)
 
 	switch {
-//	case win.MatchString(message):
-//		bot.Win(m, message)
-//	case lose.MatchString(message):
-//		bot.Lose(m, message)
-//	case fortniteBet.MatchString(message):
-//		bot.FortniteBet(m)
-//	case fortniteCancelBet.MatchString(message):
-//		bot.FortniteCancelBet(m)
-//	case fortniteResolveBet.MatchString(message):
-//		bot.FortniteResolveBet(m, message)
+	case win.MatchString(message):
+		bot.Win(m, message)
+	case lose.MatchString(message):
+		bot.Lose(m, message)
+	case fortniteBet.MatchString(message):
+		bot.FortniteBet(m)
+	case fortniteEndBet.MatchString(message):
+		bot.FortniteEndBet(m)
+	case fortniteCancelBet.MatchString(message):
+		bot.FortniteCancelBet(m)
+	case fortniteResolveBet.MatchString(message):
+		bot.FortniteResolveBet(m, message)
 	case points.MatchString(message):
 		bot.Points(m)
 	case nuts.MatchString(message):
@@ -67,18 +65,100 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.GetNutty(m)
 	case findYogi.MatchString(message):
 		bot.FindYogi(m, message)
-	case trivia.MatchString(message):
-		bot.Trivia(m, message)
+//	case trivia.MatchString(message):
+//		bot.Trivia(m, message)
+	case leaderboard.MatchString(message):
+		bot.LeaderBoard(m)
+	case redemduo.MatchString(message):
+		bot.RedemDuo(m)
+	case redemvbucks.MatchString(message):
+		bot.RedemVBucks(m)
 	default:
 		bot.Default(m)
 	}
 }
 
-func (bot *Bot) Trivia(m map[string]string, message string) {
-	if bot.triviaquestion.Question == "" {
+func (bot *Bot) UserNotice(m map[string]string) {
+	userID, userName, err := getIdentifiers(m)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	if !bot.isNutty(userID, userName) {
+		bot.GetNutty(m)
+	}
+
+	switch {
+	case m["msg-id"] == "sub":
+		if err := bot.AddNuts(userID, 1.00); err != nil {
+			fmt.Printf("Error - UserNotice: %s", err)
+			return
+		}
+	}
+}
+
+func (bot *Bot) RedemDuo(m map[string]string) {
+	userID, userName, err := getIdentifiers(m)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	if !bot.isNutty(userID, userName) {
+		bot.GetNutty(m)
 		return
 	}
 
+	cost := 2.00
+	duo := 1
+	nuts, err := bot.SelectNuts(userID)
+	if err != nil {
+		yogiibot_error(userName, err)
+		return
+	}
+	if nuts < cost {
+		return
+	}
+	if err := bot.InsertRedem(userID, duo, cost); err != nil {
+		return
+	}
+	if err := bot.RemoveNuts(userID, cost); err != nil {
+		fmt.Printf("RemoveNuts - Error: %s\n", err)
+		return
+	}
+	bot.Message(fmt.Sprintf("@%s has redeemed DUOS!", userName))
+}
+
+func (bot *Bot) RedemVBucks(m map[string]string) {
+	userID, userName, err := getIdentifiers(m)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	if !bot.isNutty(userID, userName) {
+		bot.GetNutty(m)
+		return
+	}
+	cost := 8.00
+	vbucks := 2
+	nuts, err := bot.SelectNuts(userID)
+	if err != nil {
+		fmt.Printf("SelectNuts - Error: %s\n", err)
+		return
+	}
+	if nuts < cost {
+		return	
+	}
+	if err := bot.InsertRedem(userID, vbucks, cost); err != nil {
+		return
+	}
+	if err := bot.RemoveNuts(userID, cost); err != nil {
+		fmt.Printf("RemoveNuts - Error: %s\n", err)
+		return
+	}
+	bot.Message(fmt.Sprintf("@%s has redeemed VBUCKS!", userName))
+}
+
+func (bot *Bot) LeaderBoard(m map[string]string) {
 	userID, userName, err := getIdentifiers(m)
 	if err != nil {
 		fmt.Printf("Error: %s", err)
@@ -86,23 +166,51 @@ func (bot *Bot) Trivia(m map[string]string, message string) {
 	}
 
 	if !bot.isNutty(userID, userName) {
-		return
+		bot.GetNutty(m)	
 	}
 
-	a := strings.Split(message, "!trivia ")
-	answer := a[1]
-	if strings.ToLower(bot.triviaquestion.Answer) != answer {
+	set, err := bot.SelectTopUsersByNuts()
+	if err != nil {
+		fmt.Printf("Error: %s", err)
 		return
 	}
-
-	reward := 10.0
-	if err = bot.AddNuts(userID, reward); err != nil {
-		fmt.Printf("Trivia - Error: %s\n", err)
-		return
+	
+	var res string
+	for i, row := range set {
+		res = res + fmt.Sprintf("(%v) %s = %v nuts ... ", i+1, row.UserName, row.Nuts)
 	}
-	bot.Message(fmt.Sprintf("@%s has answered the trivia question correctly! You've been rewarded %v nuts!", userName, reward))
-	bot.triviaquestion = TriviaQuestion{}
+	bot.Message(res)
 }
+
+//func (bot *Bot) Trivia(m map[string]string, message string) {
+//	if bot.triviaquestion.Question == "" {
+//		return
+//	}
+//
+//	userID, userName, err := getIdentifiers(m)
+//	if err != nil {
+//		fmt.Printf("Error: %s", err)
+//		return
+//	}
+//
+//	if !bot.isNutty(userID, userName) {
+//		bot.GetNutty(m)
+//	}
+//
+//	a := strings.Split(message, "!trivia ")
+//	answer := a[1]
+//	if strings.ToLower(bot.triviaquestion.Answer) != answer {
+//		return
+//	}
+//
+//	reward := 10.0
+//	if err = bot.AddNuts(userID, reward); err != nil {
+//		fmt.Printf("Trivia - Error: %s\n", err)
+//		return
+//	}
+//	bot.Message(fmt.Sprintf("@%s has answered the trivia question correctly! You've been rewarded %v nuts!", userName, reward))
+//	bot.triviaquestion = TriviaQuestion{}
+//}
 
 func (bot *Bot) Points(m map[string]string) {
 	userID, userName, err := getIdentifiers(m)
@@ -112,7 +220,7 @@ func (bot *Bot) Points(m map[string]string) {
 	}
 
 	if !bot.isNutty(userID, userName) {
-		return
+		bot.GetNutty(m)	
 	}
 
 	points, err := bot.SelectChatPoints(userID)
@@ -131,7 +239,7 @@ func (bot *Bot) Nuts(m map[string]string) {
 	}
 
 	if !bot.isNutty(userID, userName) {
-		return
+		bot.GetNutty(m)
 	}
 
 	nuts, err := bot.SelectNuts(userID)
@@ -161,7 +269,7 @@ func (bot *Bot) Thanks(m map[string]string, message string) {
 
 	switch {
 	case !bot.isNutty(userID, userName):
-		return
+		bot.GetNutty(m)	
 	case !bot.isSubscriber(m):
 		return
 	case userName == referencedByUserName:
@@ -221,6 +329,10 @@ func (bot *Bot) FindYogi(m map[string]string, message string) {
 		return
 	}
 
+	if !bot.isNutty(userID, userName) {
+		bot.GetNutty(m)	
+	}
+
 	reward := 3.00
 	a := strings.Split(message, "!findyogi ")
 	hash := a[1]
@@ -251,7 +363,7 @@ func (bot *Bot) Default(m map[string]string) {
 
 	reward := 1.00
 	if !bot.isNutty(userID, userName) {
-		return
+		bot.GetNutty(m)	
 	}
 	if err := bot.AddChatPoints(userID, reward); err != nil {
 		yogiibot_error(userName, err)
@@ -308,228 +420,202 @@ func (bot *Bot) isSubscriber(m map[string]string) bool {
 	}
 	return true
 }
-//
-//type betRound struct {
-//	open          bool
-//	startTime     time.Time
-//	betees        map[int]bool
-//	totalWinBets  int
-//	totalLoseBets int
-//	loseBets      []*bet
-//	winBets       []*bet
-//}
-//
-//type bet struct {
-//	userID int
-//	amount float64 
-//}
-//
-//func (bot *Bot) FortniteBet(m map[string]string) {
-//	if !bot.isMod(m) && !bot.isBroadcaster(m) {
-//		return
-//	}
-//
-//	br := &betRound{
-//		open:          true,
-//		startTime:     time.Now(),
-//		betees:        make(map[int]bool),
-//		totalWinBets:  0,
-//		totalLoseBets: 0,
-//		loseBets:      make([]*bet, 0),
-//		winBets:       make([]*bet, 0),
-//	}
-//	bot.bet = br
-//	bot.Message("BETTING BEGINS")
-//}
-//
-//func (bot *Bot) FortniteResolveBet(m map[string]string, message string) {
-//	if bot.bet == nil {
-//		return
-//	}
-//	if !bot.bet.open {
-//		return
-//	}
-//	if !bot.isMod(m) && !bot.isBroadcaster(m) {
-//		return
-//	}
-//	if len(bot.bet.winBets) == 0 || len(bot.bet.loseBets) == 0 {
-//		return
-//	}
-//
-//	a := strings.Split(message, "!fortniteresolvebet ")
-//	result := a[1]
-//
-//	var profitors, debitors []*bet
-//	var totalDebits, totalProfits int
-//	if result == "win" {
-//		profitors = bot.bet.winBets
-//		debitors = bot.bet.loseBets
-//		totalDebits = bot.bet.totalLoseBets
-//		totalProfits = bot.bet.totalWinBets
-//	} else {
-//		profitors = bot.bet.loseBets
-//		debitors = bot.bet.winBets
-//		totalDebits = bot.bet.totalWinBets
-//		totalProfits = bot.bet.totalLoseBets
-//	}
-//
-//	for _, b := range debitors {
-//		if err := bot.RemoveNuts(b.userID, b.amount); err != nil {
-//			fmt.Printf("FortniteResolveBet - RemoveNuts - Error: %s\n", err)
-//			return
-//		}
-//	}
-//
-//	for _, b := range profitors {
-//		reward := float64(totalDebits) * (b.amount / float64(totalProfits))
-//		if err := bot.AddNuts(b.userID, reward, reward); err != nil {
-//			fmt.Printf("FortniteResolveBet - AddNuts - Error: %s\n", err)
-//			return
-//		}
-//	}
-//	bot.bet.open = false
-//
-//	if result == "win" {
-//		bot.Message("PENUTTY_ WON!")
-//	} else {
-//		bot.Message("PENUTTY LOST.")
-//	}
-//}
-//
-//func (bot *Bot) FortniteCancelBet(m map[string]string) {
-//	if bot.bet == nil {
-//		return
-//	}
-//	if !bot.bet.open {
-//		return
-//	}
-//	if !bot.isMod(m) && !bot.isBroadcaster(m) {
-//		return
-//	}
-//
-//	br := &betRound{
-//		open:          false,
-//		totalWinBets:  0,
-//		totalLoseBets: 0,
-//		loseBets:      make([]*bet, 1),
-//		winBets:       make([]*bet, 1),
-//	}
-//	bot.bet = br
-//	bot.Message("BET CANCELLED.")
-//}
-//
-//func (bot *Bot) Win(m map[string]string, message string) {
-//	if bot.bet == nil {
-//		return
-//	}
-//	if !bot.bet.open {
-//		return
-//	}
-//	userID, userName, err := getIdentifiers(m)
-//	if err != nil {
-//		fmt.Printf("\nWin - Error: %s", err)
-//		return
-//	}
-//
-//	if _, ok := bot.bet.betees[userID]; ok {
-//		return
-//	}
-//
-//	a := strings.Split(message, "!win ")
-//	amount, err := strconv.Atoi(a[1])
-//	if err != nil {
-//		fmt.Printf("\nWin - Error: %s", err)
-//	}
-//
-//	nuts, err := bot.SelectNuts(userID)
-//	if err != nil {
-//		fmt.Printf("\nLose - Error: %s", err)
-//		return
-//	}
-//	if nuts < float64(amount) {
-//		return
-//	}
-//
-//	num := 1200 - time.Since(bot.bet.startTime).Seconds()
-//	if num < 0 {
-//		num = 1
-//	}
-//	fmt.Printf("\n\nnum = %v\n", num)
-//
-//	maxBet := int(math.Floor((num / 1200) * 100))
-//	if amount > maxBet {
-//		amount = maxBet
-//	}
-//
-//	minBet := int(math.Floor(num/1200) * 30)
-//	if amount < minBet {
-//		amount = minBet
-//	}
-//
-//	b := &bet{userID, amount}
-//	bot.bet.winBets = append(bot.bet.winBets, b)
-//	bot.bet.totalWinBets += amount
-//	bot.bet.betees[userID] = true
-//	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty winning!", userName, amount))
-//}
-//
-//func (bot *Bot) Lose(m map[string]string, message string) {
-//	if bot.bet == nil {
-//		return
-//	}
-//	if !bot.bet.open {
-//		return
-//	}
-//	userID, userName, err := getIdentifiers(m)
-//	if err != nil {
-//		fmt.Printf("\nLose - Error: %s", err)
-//		return
-//	}
-//	fmt.Printf("\n\nIn Lose\n\n")
-//
-//	if _, ok := bot.bet.betees[userID]; ok {
-//		return
-//	}
-//
-//	a := strings.Split(message, "!lose ")
-//	amount, err := strconv.Atoi(a[1])
-//	if err != nil {
-//		fmt.Printf("\nLose - Error: %s", err)
-//		return
-//	}
-//
-//	nuts, err := bot.SelectNuts(userID)
-//	if err != nil {
-//		fmt.Printf("\nLose - Error: %s", err)
-//		return
-//	}
-//	if nuts < float64(amount) {
-//		return
-//	}
-//
-//	num := 1200 - time.Since(bot.bet.startTime).Seconds()
-//	if num < 0 {
-//		num = 1
-//	}
-//
-//	maxBet := int(math.Floor((num / 1200) * 100))
-//	if amount > maxBet {
-//		amount = maxBet
-//	}
-//
-//	minBet := int(math.Floor(num/1200) * 30)
-//	if amount < minBet {
-//		amount = minBet
-//	}
-//
-//	b := &bet{userID, amount}
-//	bot.bet.loseBets = append(bot.bet.loseBets, b)
-//	bot.bet.totalLoseBets += amount
-//	bot.bet.betees[userID] = true
-//	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", userName, amount))
-//
-//}
-//
+
+type betRound struct {
+	open          bool
+	startTime     time.Time
+	betees        map[int]bool
+	totalWinBets  float64 
+	totalLoseBets float64 
+	loseBets      []*bet
+	winBets       []*bet
+}
+
+type bet struct {
+	userID int
+	amount float64 
+}
+
+func (bot *Bot) FortniteBet(m map[string]string) {
+	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+		return
+	}
+
+	br := &betRound{
+		open:          true,
+		startTime:     time.Now(),
+		betees:        make(map[int]bool),
+		totalWinBets:  0,
+		totalLoseBets: 0,
+		loseBets:      make([]*bet, 0),
+		winBets:       make([]*bet, 0),
+	}
+	bot.bet = br
+	bot.Message("BETTING BEGINS")
+}
+
+func (bot *Bot) FortniteEndBet(m map[string]string) {
+	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+		return
+	}
+	bot.bet.open = false
+	bot.Message("BETTING ENDS")
+}
+
+func (bot *Bot) FortniteResolveBet(m map[string]string, message string) {
+	if bot.bet == nil {
+		return
+	}
+	if bot.bet.open {
+		return
+	}
+	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+		return
+	}
+	if len(bot.bet.winBets) == 0 || len(bot.bet.loseBets) == 0 {
+		return
+	}
+
+	a := strings.Split(message, "!fortniteresolvebet ")
+	result := a[1]
+
+	var profitors, debitors []*bet
+	var totalDebits, totalProfits float64 
+	if result == "win" {
+		profitors = bot.bet.winBets
+		debitors = bot.bet.loseBets
+		totalDebits = bot.bet.totalLoseBets
+		totalProfits = bot.bet.totalWinBets
+	} else {
+		profitors = bot.bet.loseBets
+		debitors = bot.bet.winBets
+		totalDebits = bot.bet.totalWinBets
+		totalProfits = bot.bet.totalLoseBets
+	}
+
+	for _, b := range debitors {
+		if err := bot.RemoveNuts(b.userID, b.amount); err != nil {
+			fmt.Printf("FortniteResolveBet - RemoveNuts - Error: %s\n", err)
+			return
+		}
+	}
+
+	for _, b := range profitors {
+		reward := float64(totalDebits) * (b.amount / float64(totalProfits))
+		if err := bot.AddNuts(b.userID, reward); err != nil {
+			fmt.Printf("FortniteResolveBet - AddNuts - Error: %s\n", err)
+			return
+		}
+	}
+	bot.bet.open = false
+
+	if result == "win" {
+		bot.Message("PENUTTY_ WON!")
+	} else {
+		bot.Message("PENUTTY LOST.")
+	}
+}
+
+func (bot *Bot) FortniteCancelBet(m map[string]string) {
+	if bot.bet == nil {
+		return
+	}
+	if !bot.isMod(m) && !bot.isBroadcaster(m) {
+		return
+	}
+
+	br := &betRound{
+		open:          false,
+		totalWinBets:  0,
+		totalLoseBets: 0,
+		loseBets:      make([]*bet, 1),
+		winBets:       make([]*bet, 1),
+	}
+	bot.bet = br
+	bot.Message("BET CANCELLED.")
+}
+
+func (bot *Bot) Win(m map[string]string, message string) {
+	if bot.bet == nil {
+		return
+	}
+	if !bot.bet.open {
+		return
+	}
+	userID, userName, err := getIdentifiers(m)
+	if err != nil {
+		fmt.Printf("\nWin - Error: %s", err)
+		return
+	}
+
+	if _, ok := bot.bet.betees[userID]; ok {
+		return
+	}
+
+	a := strings.Split(message, "!win ")
+	amount, err := strconv.ParseFloat(a[1], 64)
+	if err != nil {
+		fmt.Printf("\nWin - Error: %s", err)
+	}
+
+	nuts, err := bot.SelectNuts(userID)
+	if err != nil {
+		fmt.Printf("\nLose - Error: %s", err)
+		return
+	}
+	if nuts < amount {
+		return
+	}
+
+	b := &bet{userID, amount}
+	bot.bet.winBets = append(bot.bet.winBets, b)
+	bot.bet.totalWinBets += amount
+	bot.bet.betees[userID] = true
+	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty winning!", userName, amount))
+}
+
+func (bot *Bot) Lose(m map[string]string, message string) {
+	if bot.bet == nil {
+		return
+	}
+	if !bot.bet.open {
+		return
+	}
+	userID, userName, err := getIdentifiers(m)
+	if err != nil {
+		fmt.Printf("\nLose - Error: %s", err)
+		return
+	}
+	fmt.Printf("\n\nIn Lose\n\n")
+
+	if _, ok := bot.bet.betees[userID]; ok {
+		return
+	}
+
+	a := strings.Split(message, "!lose ")
+	amount, err := strconv.ParseFloat(a[1], 64)
+	if err != nil {
+		fmt.Printf("\nLose - Error: %s", err)
+		return
+	}
+
+	nuts, err := bot.SelectNuts(userID)
+	if err != nil {
+		fmt.Printf("\nLose - Error: %s", err)
+		return
+	}
+	if nuts < amount {
+		return
+	}
+
+	b := &bet{userID, amount}
+	bot.bet.loseBets = append(bot.bet.loseBets, b)
+	bot.bet.totalLoseBets += amount
+	bot.bet.betees[userID] = true
+	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", userName, amount))
+
+}
+
 //func (bot *Bot) Duel(m map[string]string) {
 //	if !bot.isMod(m) && !bot.isBroadcaster(m) {
 //		return

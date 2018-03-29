@@ -10,6 +10,11 @@ import (
 
 	_ "github.com/denisenkom/go-mssqldb"
 )
+type UsersRow struct {
+	UserID int
+	UserName string
+	Nuts float64
+}
 
 func (bot *Bot) readSettingsDB(channel string) bool {
 	settings, err := ioutil.ReadFile("settings#" + channel + ".ini")
@@ -191,6 +196,35 @@ func (bot *Bot) SelectNuts(userID int) (nuts float64, err error) {
 	return
 }
 
+func (bot *Bot) SelectTopUsersByNuts() (set []UsersRow, err error) {
+	query := `SELECT TOP 5 [UserName], [Nuts]
+		  FROM [info].[Users]
+		  ORDER BY [Nuts] DESC`
+	rows, err := bot.dbconn.Query(query)
+	if err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			userName string
+			nuts float64
+		)
+		if err = rows.Scan(&userName, &nuts); err != nil {
+			fmt.Printf("Error: %s", err)
+			return
+		}
+		set = append(set, UsersRow{ UserName: userName, Nuts: nuts })
+	}
+	if err = rows.Err(); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}
+
 func (bot *Bot) SelectUserID(username string) (userID int, err error) {
 	query := `SELECT [UserID]
 		  FROM [info].[Users]
@@ -210,6 +244,17 @@ func (bot *Bot) SelectUserName(userID int) (username string, err error) {
 	args := []interface{}{userID}
 	if err = bot.dbconn.QueryRow(query, args...).Scan(&userID); err != nil && err != sql.ErrNoRows {
 		fmt.Printf("Error : %s", err)
+		return
+	}
+	return
+}
+
+func (bot *Bot) InsertRedem(userID int, itemID int, cost float64) (err error) {
+	query := `INSERT INTO [info].[Redems] ([UserID], [NutCost], [ItemID])
+		  VALUES ( ?, ?, ?)`
+	args := []interface{}{userID, cost, itemID}
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+		fmt.Printf("Error: %s", err)
 		return
 	}
 	return

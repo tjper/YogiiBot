@@ -35,7 +35,7 @@ type Bot struct {
 
 	yogihashs map[string]bool
 
-//	bet *betRound
+	bet *betRound
 
 	triviaquestion TriviaQuestion
 
@@ -206,6 +206,7 @@ func main() {
 	go ircbot.TriviaQuestion()
 
 	//
+	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/commands\n")
 	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/tags\n")
 	fmt.Fprintf(ircbot.conn, "USER %s 8 * :%s\r\n", ircbot.nick, ircbot.nick)
 	fmt.Fprintf(ircbot.conn, "PASS %s\r\n", pass)
@@ -242,6 +243,12 @@ func main() {
 				go ircbot.CmdInterpreter(m, message[1])
 			}
 
+		} else if strings.Contains(line, ":tmi.twitch.tv USERNOTICE "+ircbot.channel) {
+			m, err := lineToMap(line)
+			if err != nil {
+				fmt.Printf("Error: %s", err)
+			}
+			go ircbot.UserNotice(m)
 		}
 	}
 }
