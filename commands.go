@@ -160,7 +160,7 @@ var (
 )
 
 func (bot *Bot) RedeemDuo(u *User) {
-	if !bot.DuoOpen {
+	if !bot.duoopen{
 		return
 	}
 	if len(bot.duoqueue) > DuoQueueLimit {
@@ -224,7 +224,7 @@ func (bot *Bot) DuoOpen(u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
-	bot.DuoOpen = true
+	bot.duoopen= true
 	bot.Message(fmt.Sprintf("DUOS is now open! type \"!redeem duo\" to play with penutty."))
 }
 
@@ -232,7 +232,7 @@ func (bot *Bot) DuoClose(u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
-	bot.DuoOpen = false
+	bot.duoopen= false
 	bot.Message(fmt.Sprintf("DUOS is now closed."))
 }
 
