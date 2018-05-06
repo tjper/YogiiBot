@@ -158,7 +158,7 @@ func (bot *Bot) WildYogi() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			n := (rand.Int() % 20) + 10
+			n := rand.Int() % 150 
 			time.Sleep(time.Duration(n) * time.Minute)
 			r := RandomString(5)
 			bot.yogihashs[r] = false

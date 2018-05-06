@@ -249,7 +249,7 @@ func (bot *Bot) SelectUserName(userID int) (username string, err error) {
 	return
 }
 
-func (bot *Bot) InsertRedem(userID int, itemID int, cost float64) (err error) {
+func (bot *Bot) InsertRedeem(userID int, itemID int, cost float64) (err error) {
 	query := `INSERT INTO [info].[Redems] ([UserID], [NutCost], [ItemID])
 		  VALUES ( ?, ?, ?)`
 	args := []interface{}{userID, cost, itemID}

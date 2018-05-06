@@ -30,8 +30,8 @@ var (
 
 	leaderboard = regexp.MustCompile(`^(\!leaderboard)$`)
 	
-	redemduo = regexp.MustCompile(`^(\!redem)(\s){1}(duo)$`)
-	redemvbucks = regexp.MustCompile(`^(\!redem)(\s){1}(vbucks)$`)
+	redeemduo = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
+	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
 
 func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
@@ -69,10 +69,10 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 //		bot.Trivia(m, message)
 	case leaderboard.MatchString(message):
 		bot.LeaderBoard(u)
-	case redemduo.MatchString(message):
-		bot.RedemDuo(u)
-	case redemvbucks.MatchString(message):
-		bot.RedemVBucks(u)
+	case redeemduo.MatchString(message):
+		bot.RedeemDuo(u)
+	case redeemvbucks.MatchString(message):
+		bot.RedeemVBucks(u)
 	default:
 		bot.Default(u)
 	}
@@ -119,7 +119,7 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 		if err := bot.UpdateSubStatus(u.Id); err != nil {
 			return u, err
 		}
-		if err := bot.AddNuts(u.Id, 0.5); err != nil {
+		if err := bot.AddNuts(u.Id, 1.0); err != nil {
 			return u, err
 		}
 	}
@@ -146,9 +146,9 @@ func isSubscriber(m map[string]string) bool {
 	return true
 }
 
-func (bot *Bot) RedemDuo(u *User) {
+func (bot *Bot) RedeemDuo(u *User) {
 
-	cost := 2.00
+	cost := 1.00
 	duo := 1
 	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
@@ -157,7 +157,7 @@ func (bot *Bot) RedemDuo(u *User) {
 	if nuts < cost {
 		return
 	}
-	if err := bot.InsertRedem(u.Id, duo, cost); err != nil {
+	if err := bot.InsertRedeem(u.Id, duo, cost); err != nil {
 		return
 	}
 	if err := bot.RemoveNuts(u.Id, cost); err != nil {
@@ -167,7 +167,7 @@ func (bot *Bot) RedemDuo(u *User) {
 	bot.Message(fmt.Sprintf("@%s has redeemed DUOS!", u.Name))
 }
 
-func (bot *Bot) RedemVBucks(u *User) {
+func (bot *Bot) RedeemVBucks(u *User) {
 	cost := 8.00
 	vbucks := 2
 	nuts, err := bot.SelectNuts(u.Id)
@@ -178,7 +178,7 @@ func (bot *Bot) RedemVBucks(u *User) {
 	if nuts < cost {
 		return	
 	}
-	if err := bot.InsertRedem(u.Id, vbucks, cost); err != nil {
+	if err := bot.InsertRedeem(u.Id, vbucks, cost); err != nil {
 		return
 	}
 	if err := bot.RemoveNuts(u.Id, cost); err != nil {
@@ -250,7 +250,6 @@ func (bot *Bot) Nuts(u *User) {
 }
 
 func (bot *Bot) Thanks(u *User, message string) {
-	reward := 1.00
 	a := strings.Split(message, "!thanks ")
 	referencedByUserName := a[1]
 
@@ -259,10 +258,17 @@ func (bot *Bot) Thanks(u *User, message string) {
 		return
 	}
 
+	nuts, err := bot.SelectNuts(u.Id)
+	if err != nil {
+		return
+	}
+
 	switch {
+	case nuts < 0.5:
+		return
 	case !u.IsSubscriber:
 		return
-	case u.Name == referencedByUserName:
+	case u.Id == referencedByUserID:
 		fmt.Printf("\n%s- attempted to thank themself.", u.Name)
 		return
 	case !bot.isNutty(&User{ Id: referencedByUserID, Name: referencedByUserName} ):
@@ -282,10 +288,11 @@ func (bot *Bot) Thanks(u *User, message string) {
 	if err := bot.CreateReference(u.Id, referencedByUserID); err != nil && err != sql.ErrNoRows {
 		return
 	}
+	reward := 0.25
 	if err := bot.AddNuts(referencedByUserID, reward); err != nil {
 		return
 	}
-
+	
 	bot.Message(fmt.Sprintf("Thanks @%s, for recommending penutty_ to @%s! You've earned %v nut!", referencedByUserName, u.Name, reward))
 
 }
@@ -298,7 +305,6 @@ func (bot *Bot) GetNutty(u *User) {
 }
 
 func (bot *Bot) FindYogi(u *User, message string) {
-	reward := 3.00
 	a := strings.Split(message, "!findyogi ")
 	hash := a[1]
 
@@ -308,7 +314,8 @@ func (bot *Bot) FindYogi(u *User, message string) {
 	}
 
 	bot.yogihashs[hash] = true
-	if err := bot.AddChatPoints(u.Id, reward); err != nil {
+	reward := 0.1
+	if err := bot.AddNuts(u.Id, reward); err != nil {
 		fmt.Errorf("Error: %s\n", err)
 		return
 	}
@@ -321,8 +328,8 @@ func (bot *Bot) Default(u *User) {
 		return
 	}
 
-	reward := 1.00
-	if err := bot.AddChatPoints(u.Id, reward); err != nil {
+	reward := 0.005
+	if err := bot.AddNuts(u.Id, reward); err != nil {
 		return
 	}
 
