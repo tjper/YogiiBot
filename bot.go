@@ -39,7 +39,7 @@ type Bot struct {
 
 	triviaquestion TriviaQuestion
 
-	giftedsubqueue []string
+	duoqueue []*User
 
 	dbconn *sql.DB
 }
@@ -60,12 +60,13 @@ func NewBot() *Bot {
 		server:    "irc.twitch.tv",
 		port:      "6667",
 		nick:      "YogiiBot", //Change to your Twitch username
-		channel:   "penutty", //Change to your channel
+		channel:   "penutty",  //Change to your channel
 		conn:      nil,        //Don't change this
 		lastMsg:   make(map[int]time.Time),
 		duel:      make(map[string][]Vote),
 		votees:    make(map[int]bool),
 		yogihashs: make(map[string]bool),
+		duoqueue:  make([]*User, 0),
 	}
 }
 
@@ -158,7 +159,7 @@ func (bot *Bot) WildYogi() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			n := rand.Int() % 150 
+			n := rand.Int() % 150
 			time.Sleep(time.Duration(n) * time.Minute)
 			r := RandomString(5)
 			bot.yogihashs[r] = false
@@ -243,7 +244,7 @@ func main() {
 				go ircbot.CmdInterpreter(m, message[1])
 			}
 
-		} 
+		}
 	}
 }
 

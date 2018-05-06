@@ -10,10 +10,11 @@ import (
 
 	_ "github.com/denisenkom/go-mssqldb"
 )
+
 type UsersRow struct {
-	UserID int
+	UserID   int
 	UserName string
-	Nuts float64
+	Nuts     float64
 }
 
 func (bot *Bot) readSettingsDB(channel string) bool {
@@ -199,8 +200,10 @@ func (bot *Bot) SelectNuts(userID int) (nuts float64, err error) {
 func (bot *Bot) SelectTopUsersByNuts() (set []UsersRow, err error) {
 	query := `SELECT TOP 5 [UserName], [Nuts]
 		  FROM [info].[Users]
+		  WHERE [UserName] NOT IN(?,?)
 		  ORDER BY [Nuts] DESC`
-	rows, err := bot.dbconn.Query(query)
+	args := []interface{}{"penutty_", ""}
+	rows, err := bot.dbconn.Query(query, args...)
 	if err != nil {
 		fmt.Printf("Error: %s", err)
 		return
@@ -210,13 +213,13 @@ func (bot *Bot) SelectTopUsersByNuts() (set []UsersRow, err error) {
 	for rows.Next() {
 		var (
 			userName string
-			nuts float64
+			nuts     float64
 		)
 		if err = rows.Scan(&userName, &nuts); err != nil {
 			fmt.Printf("Error: %s", err)
 			return
 		}
-		set = append(set, UsersRow{ UserName: userName, Nuts: nuts })
+		set = append(set, UsersRow{UserName: userName, Nuts: nuts})
 	}
 	if err = rows.Err(); err != nil {
 		fmt.Printf("Error: %s", err)

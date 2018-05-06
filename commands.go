@@ -13,7 +13,7 @@ import (
 
 var (
 	nuts     = regexp.MustCompile(`^(!nuts)$`)
-	points = regexp.MustCompile(`^(!points)$`)
+	points   = regexp.MustCompile(`^(!points)$`)
 	thanks   = regexp.MustCompile(`^(\!thanks)(\s){1}([a-zA-Z0-9_]){4,25}$`)
 	getnutty = regexp.MustCompile(`^(\!getnutty)$`)
 
@@ -22,15 +22,15 @@ var (
 	win                = regexp.MustCompile(`^(\!win)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
 	lose               = regexp.MustCompile(`^(\!lose)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
 	fortniteBet        = regexp.MustCompile(`^(\!fortnitebet)$`)
-	fortniteEndBet	   = regexp.MustCompile(`^(\!fortniteendbet)$`)
+	fortniteEndBet     = regexp.MustCompile(`^(\!fortniteendbet)$`)
 	fortniteResolveBet = regexp.MustCompile(`^(\!fortniteresolvebet)(\s){1}(win|lose){1}$`)
 	fortniteCancelBet  = regexp.MustCompile(`^(\!fortnitecancelbet)$`)
 
 	trivia = regexp.MustCompile(`^(\!trivia)(\s){1}(.)+$`)
 
 	leaderboard = regexp.MustCompile(`^(\!leaderboard)$`)
-	
-	redeemduo = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
+
+	redeemduo    = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
 	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
 
@@ -65,8 +65,8 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.Thanks(u, message)
 	case findYogi.MatchString(message):
 		bot.FindYogi(u, message)
-//	case trivia.MatchString(message):
-//		bot.Trivia(m, message)
+		//	case trivia.MatchString(message):
+		//		bot.Trivia(m, message)
 	case leaderboard.MatchString(message):
 		bot.LeaderBoard(u)
 	case redeemduo.MatchString(message):
@@ -79,13 +79,13 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 }
 
 type User struct {
-	Id int
-	Name string
-	IsSubscriber bool
-	IsMod bool
+	Id            int
+	Name          string
+	IsSubscriber  bool
+	IsMod         bool
 	IsBroadcaster bool
 }
-	
+
 var ErrorInvalidIdentifiers = errors.New("Invalid user identifiers.")
 
 func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
@@ -104,14 +104,24 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 		return u, ErrorInvalidIdentifiers
 	}
 
-	u.IsMod = isMod(m)
-	u.IsBroadcaster = isBroadcaster(m)
-	u.IsSubscriber = isSubscriber(m)
-	
+	u.IsSubscriber = false
+	u.IsMod = false
+	u.IsBroadcaster = false
+
+	if m["mod"] == "1" {
+		u.IsMod = true
+	}
+	if m["broadcaster"] == "1" {
+		u.IsBroadcaster = true
+	}
+	if m["subscriber"] == "1" {
+		u.IsSubscriber = true
+	}
+
 	if u.IsSubscriber {
 		registered, err := bot.SelectSubStatus(u.Id)
 		if err != nil {
-			return u, err 
+			return u, err
 		}
 		if registered {
 			return u, nil
@@ -127,44 +137,64 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 	return u, nil
 }
 
-func isMod(m map[string]string) bool {
-	if m["mod"] != "1" {
-		return false
-	}
-	return true
-}
-func isBroadcaster(m map[string]string) bool {
-	if m["broadcaster"] != "1" {
-		return false
-	}
-	return true
-}
-func isSubscriber(m map[string]string) bool {
-	if m["subscriber"] != "1" {
-		return false
-	}
-	return true
-}
+var (
+	DuoCost       = 1.00
+	TypeDuo       = 1
+	DuoQueueLimit = 3
+)
 
 func (bot *Bot) RedeemDuo(u *User) {
+	if len(bot.duoqueue) > DuoQueueLimit {
+		fmt.Print("DuoQueueLimit Reached.")
+		return
+	}
 
-	cost := 1.00
-	duo := 1
 	nuts, err := bot.SelectNuts(u.Id)
 	if err != nil {
 		return
 	}
-	if nuts < cost {
-		return
-	}
-	if err := bot.InsertRedeem(u.Id, duo, cost); err != nil {
-		return
-	}
-	if err := bot.RemoveNuts(u.Id, cost); err != nil {
-		fmt.Printf("RemoveNuts - Error: %s\n", err)
+	if nuts < DuoCost {
 		return
 	}
 	bot.Message(fmt.Sprintf("@%s has redeemed DUOS!", u.Name))
+	bot.duoqueue = append(bot.duoqueue, u)
+}
+
+func (bot *Bot) DuoCharge(u *User) {
+	if !u.IsMod {
+		return
+	}
+	if len(bot.duoqueue) <= 0 {
+		fmt.Println("DuoQueue Empty")
+		return
+	}
+
+	r := bot.duoqueue[0]
+
+	if err := bot.InsertRedeem(r.Id, TypeDuo, DuoCost); err != nil {
+		return
+	}
+	if err := bot.RemoveNuts(r.Id, DuoCost); err != nil {
+		fmt.Printf("RemoveNuts - Error: %s\n", err)
+		return
+	}
+	bot.Message(fmt.Sprintf("@%s has been charged for DUOS!", r.Name))
+	bot.duoqueue = bot.duoqueue[1:]
+}
+
+func (bot *Bot) DuoRemove(u *User) {
+	if !u.IsMod {
+		return
+	}
+	if len(bot.duoqueue) <= 0 {
+		fmt.Println("DuoQueue Empty")
+		return
+	}
+	bot.duoqueue = bot.duoqueue[1:]
+}
+
+func (bot *Bot) DuoQueue() {
+	bot.Message(fmt.Sprintf("%s", bot.duoqueue))
 }
 
 func (bot *Bot) RedeemVBucks(u *User) {
@@ -176,7 +206,7 @@ func (bot *Bot) RedeemVBucks(u *User) {
 		return
 	}
 	if nuts < cost {
-		return	
+		return
 	}
 	if err := bot.InsertRedeem(u.Id, vbucks, cost); err != nil {
 		return
@@ -195,7 +225,7 @@ func (bot *Bot) LeaderBoard(u *User) {
 		fmt.Printf("Error - LeaderBoard: %s", err)
 		return
 	}
-	
+
 	var res string
 	for i, row := range set {
 		res = res + fmt.Sprintf("(%v) %s = %v nuts ... ", i+1, row.UserName, row.Nuts)
@@ -271,7 +301,7 @@ func (bot *Bot) Thanks(u *User, message string) {
 	case u.Id == referencedByUserID:
 		fmt.Printf("\n%s- attempted to thank themself.", u.Name)
 		return
-	case !bot.isNutty(&User{ Id: referencedByUserID, Name: referencedByUserName} ):
+	case !bot.isNutty(&User{Id: referencedByUserID, Name: referencedByUserName}):
 		fmt.Printf("\n%s - attempted to thank someone who hasn't ran !getnutty.", u.Name, referencedByUserName)
 		return
 	}
@@ -292,7 +322,7 @@ func (bot *Bot) Thanks(u *User, message string) {
 	if err := bot.AddNuts(referencedByUserID, reward); err != nil {
 		return
 	}
-	
+
 	bot.Message(fmt.Sprintf("Thanks @%s, for recommending penutty_ to @%s! You've earned %v nut!", referencedByUserName, u.Name, reward))
 
 }
@@ -336,7 +366,6 @@ func (bot *Bot) Default(u *User) {
 	bot.lastMsg[u.Id] = time.Now()
 }
 
-
 func (bot *Bot) isNutty(u *User) bool {
 	ok, err := bot.UserIDExists(u.Id)
 	if err != nil && err != sql.ErrNoRows {
@@ -349,15 +378,15 @@ type betRound struct {
 	open          bool
 	startTime     time.Time
 	betees        map[int]bool
-	totalWinBets  float64 
-	totalLoseBets float64 
+	totalWinBets  float64
+	totalLoseBets float64
 	loseBets      []*bet
 	winBets       []*bet
 }
 
 type bet struct {
 	userID int
-	amount float64 
+	amount float64
 }
 
 func (bot *Bot) FortniteBet(u *User) {
@@ -404,7 +433,7 @@ func (bot *Bot) FortniteResolveBet(u *User, message string) {
 	result := a[1]
 
 	var profitors, debitors []*bet
-	var totalDebits, totalProfits float64 
+	var totalDebits, totalProfits float64
 	if result == "win" {
 		profitors = bot.bet.winBets
 		debitors = bot.bet.loseBets
@@ -528,5 +557,3 @@ func (bot *Bot) Lose(u *User, message string) {
 	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", u.Name, amount))
 
 }
-
-
