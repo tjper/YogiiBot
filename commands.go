@@ -30,7 +30,11 @@ var (
 
 	leaderboard = regexp.MustCompile(`^(\!leaderboard)$`)
 
-	redeemduo    = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
+	redeemduo = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
+	duoqueue  = regexp.MustCompile(`^(\!duoqueue)$`)
+	duoremove = regexp.MustCompile(`^(\!duoremove)$`)
+	duocharge = regexp.MustCompile(`^(\!duocharge)$`)
+
 	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
 
@@ -71,6 +75,12 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.LeaderBoard(u)
 	case redeemduo.MatchString(message):
 		bot.RedeemDuo(u)
+	case duoqueue.MatchString(message):
+		bot.DuoQueue()
+	case duoremove.MatchString(message):
+		bot.DuoRemove(u)
+	case duocharge.MatchString(message):
+		bot.DuoCharge(u)
 	case redeemvbucks.MatchString(message):
 		bot.RedeemVBucks(u)
 	default:
