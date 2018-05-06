@@ -40,6 +40,7 @@ type Bot struct {
 	triviaquestion TriviaQuestion
 
 	duoqueue []*User
+	duoopen  bool
 
 	dbconn *sql.DB
 }
@@ -67,6 +68,7 @@ func NewBot() *Bot {
 		votees:    make(map[int]bool),
 		yogihashs: make(map[string]bool),
 		duoqueue:  make([]*User, 0),
+		duoopen:   false,
 	}
 }
 

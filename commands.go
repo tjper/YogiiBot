@@ -34,6 +34,8 @@ var (
 	duoqueue  = regexp.MustCompile(`^(\!duoqueue)$`)
 	duoremove = regexp.MustCompile(`^(\!duoremove)$`)
 	duocharge = regexp.MustCompile(`^(\!duocharge)$`)
+	duoopen   = regexp.MustCompile(`^(\!duoopen)$`)
+	duoclose  = regexp.MustCompile(`^(!duoclose)$`)
 
 	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
@@ -81,6 +83,10 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.DuoRemove(u)
 	case duocharge.MatchString(message):
 		bot.DuoCharge(u)
+	case duoopen.MatchString(message):
+		bot.DuoOpen(u)
+	case duoclose.MatchString(message):
+		bot.DuoClose(u)
 	case redeemvbucks.MatchString(message):
 		bot.RedeemVBucks(u)
 	default:
@@ -154,6 +160,9 @@ var (
 )
 
 func (bot *Bot) RedeemDuo(u *User) {
+	if !bot.DuoOpen {
+		return
+	}
 	if len(bot.duoqueue) > DuoQueueLimit {
 		fmt.Print("DuoQueueLimit Reached.")
 		return
@@ -209,6 +218,22 @@ func (bot *Bot) DuoQueue() {
 		msg = msg + fmt.Sprintf("%v. %s   ", i+1, u.Name)
 	}
 	bot.Message(msg)
+}
+
+func (bot *Bot) DuoOpen(u *User) {
+	if !u.IsMod && !u.IsBroadcaster {
+		return
+	}
+	bot.DuoOpen = true
+	bot.Message(fmt.Sprintf("DUOS is now open! type \"!redeem duo\" to play with penutty."))
+}
+
+func (bot *Bot) DuoClose(u *User) {
+	if !u.IsMod && !u.IsBroadcaster {
+		return
+	}
+	bot.DuoOpen = false
+	bot.Message(fmt.Sprintf("DUOS is now closed."))
 }
 
 func (bot *Bot) RedeemVBucks(u *User) {
