@@ -171,7 +171,7 @@ func (bot *Bot) RedeemDuo(u *User) {
 }
 
 func (bot *Bot) DuoCharge(u *User) {
-	if !u.IsMod {
+	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
 	if len(bot.duoqueue) <= 0 {
@@ -193,7 +193,7 @@ func (bot *Bot) DuoCharge(u *User) {
 }
 
 func (bot *Bot) DuoRemove(u *User) {
-	if !u.IsMod {
+	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
 	if len(bot.duoqueue) <= 0 {
@@ -204,7 +204,11 @@ func (bot *Bot) DuoRemove(u *User) {
 }
 
 func (bot *Bot) DuoQueue() {
-	bot.Message(fmt.Sprintf("%s", bot.duoqueue))
+	var msg string
+	for i, u := range bot.duoqueue {
+		msg = msg + fmt.Sprintf("%v. %s   ", i, u.Name)
+	}
+	bot.Message(msg)
 }
 
 func (bot *Bot) RedeemVBucks(u *User) {
