@@ -206,7 +206,7 @@ func (bot *Bot) DuoRemove(u *User) {
 func (bot *Bot) DuoQueue() {
 	var msg string
 	for i, u := range bot.duoqueue {
-		msg = msg + fmt.Sprintf("%v. %s   ", i, u.Name)
+		msg = msg + fmt.Sprintf("%v. %s   ", i+1, u.Name)
 	}
 	bot.Message(msg)
 }
