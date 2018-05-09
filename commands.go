@@ -160,7 +160,7 @@ var (
 )
 
 func (bot *Bot) RedeemDuo(u *User) {
-	if !bot.DuoOpen {
+	if !bot.duoopen {
 		return
 	}
 	if len(bot.duoqueue) > DuoQueueLimit {
@@ -224,7 +224,7 @@ func (bot *Bot) DuoOpen(u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
-	bot.DuoOpen = true
+	bot.duoopen = true
 	bot.Message(fmt.Sprintf("DUOS is now open! type \"!redeem duo\" to play with penutty."))
 }
 
@@ -232,7 +232,7 @@ func (bot *Bot) DuoClose(u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
-	bot.DuoOpen = false
+	bot.duoopen = false
 	bot.Message(fmt.Sprintf("DUOS is now closed."))
 }
 
@@ -370,7 +370,7 @@ func (bot *Bot) GetNutty(u *User) {
 	if err := bot.CreateUser(u.Name, u.Id); err != nil {
 		return
 	}
-	bot.Message(fmt.Sprintf("Rufffff! Welcome @%s! Scroll down to the info section to see what commands you can use!", u.Name))
+	bot.Message(fmt.Sprintf("/w %s Rufffff! Welcome to penutty's channel @%s! type !how in the channel chat to see how to earn !nuts. Nuts can be redeemed for VBUCKS, playing duos with penutty, and more!", u.Name))
 }
 
 func (bot *Bot) FindYogi(u *User, message string) {
