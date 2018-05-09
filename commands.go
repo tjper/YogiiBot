@@ -163,9 +163,14 @@ func (bot *Bot) RedeemDuo(u *User) {
 	if !bot.duoopen {
 		return
 	}
-	if len(bot.duoqueue) > DuoQueueLimit {
+	if len(bot.duoqueue) >= DuoQueueLimit {
 		fmt.Print("DuoQueueLimit Reached.")
 		return
+	}
+	for _, r := range bot.duoqueue {
+		if r.Name == u.Name {
+			return
+		}
 	}
 
 	nuts, err := bot.SelectNuts(u.Id)
