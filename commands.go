@@ -375,7 +375,7 @@ func (bot *Bot) GetNutty(u *User) {
 	if err := bot.CreateUser(u.Name, u.Id); err != nil {
 		return
 	}
-	bot.Message(fmt.Sprintf("/w %s Rufffff! Welcome to penutty's channel @%s! type !how in the channel chat to see how to earn !nuts. Nuts can be redeemed for VBUCKS, playing duos with penutty, and more!", u.Name))
+	bot.Message(fmt.Sprintf("/w %s Rufffff! Welcome to penutty's channel %s! type !how in the channel chat to see how to earn !nuts. Nuts can be redeemed for VBUCKS, playing duos with penutty, and more!", u.Name, u.Name))
 }
 
 func (bot *Bot) FindYogi(u *User, message string) {
