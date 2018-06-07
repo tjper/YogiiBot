@@ -35,7 +35,9 @@ var (
 	duoremove = regexp.MustCompile(`^(\!duoremove)$`)
 	duocharge = regexp.MustCompile(`^(\!duocharge)$`)
 	duoopen   = regexp.MustCompile(`^(\!duoopen)$`)
-	duoclose  = regexp.MustCompile(`^(!duoclose)$`)
+	duoclose  = regexp.MustCompile(`^(\!duoclose)$`)
+
+	snipe = regexp.MustCompile(`^(\!snipe)$`)
 
 	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
@@ -89,6 +91,8 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.DuoClose(u)
 	case redeemvbucks.MatchString(message):
 		bot.RedeemVBucks(u)
+	case snipe.MatchString(message):
+		bot.Snipe(u)
 	default:
 		bot.Default(u)
 	}
@@ -151,6 +155,17 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 	}
 
 	return u, nil
+}
+
+func (bot *Bot) Snipe(u *User) {
+	if !u.IsMod && !u.IsBroadcaster {
+		return
+	}
+	bot.Message(fmt.Sprintf("Ready up on 1"))
+	for i := 5; i > 0; i-- {
+		time.Sleep(1 * time.Second)
+		bot.Message(fmt.Sprintf("COUNTDOWN: %v", i))
+	}
 }
 
 var (
