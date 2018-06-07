@@ -41,6 +41,8 @@ type Bot struct {
 
 	duoqueue []*User
 	duoopen  bool
+	
+	qsnipes map[region][]*Qsnipe
 
 	dbconn *sql.DB
 }
@@ -69,6 +71,7 @@ func NewBot() *Bot {
 		yogihashs: make(map[string]bool),
 		duoqueue:  make([]*User, 0),
 		duoopen:   false,
+		qsnipes:   map[region][]*Qsnipe{NAE: make([]*Qsnipe, 0), NAW: make([]*Qsnipe, 0), EU: make([]*Qsnipe, 0)},
 	}
 }
 
