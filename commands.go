@@ -159,7 +159,7 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 
 var (
 	QSnipeMaxPlayerCnt = 10
-	QSnipeLobbyDuration = 2 //minutes
+	QSnipeLobbyDuration = 1 //minutes
 )
 
 type region string 
@@ -203,15 +203,16 @@ func (bot *Bot) Qsnipe(u *User, message string) {
 }
 
 type Qsnipe struct {
+	Region region
 	StartTime time.Time
 	Players map[int]*User	
 }
 
 func NewQsnipe(bot *Bot, u *User, r string) (qs *Qsnipe) {
-	bot.Message(fmt.Sprintf("/w %s %s, you've started a %s Qsnipe! Have Fortnite open and be ready play in %v minutes.", u.Name, u.Name, r, QSnipeLobbyDuration))
+	bot.Message(fmt.Sprintf("/w %s %s, you've started a %s Qsnipe! Have Fortnite open and be ready play in %v minute(s).", u.Name, u.Name, r, QSnipeLobbyDuration))
 	bot.Message(fmt.Sprintf("@%s has started a public %s Qsnipe! type \"!qsnipe %s\" to join.", u.Name, r, r))
 
-	qs = &Qsnipe{ time.Now().Add(time.Minute * time.Duration(QSnipeLobbyDuration)), map[int]*User{u.Id: u}}
+	qs = &Qsnipe{region(r), time.Now().Add(time.Minute * time.Duration(QSnipeLobbyDuration)), map[int]*User{u.Id: u}}
 	go qs.Start(bot)
 	return qs 
 }
@@ -222,14 +223,14 @@ func (q *Qsnipe) Join(bot *Bot, u *User) {
 		bot.Message(fmt.Sprintf("/w %s %s has joined the Qsnipe.", p.Name, u.Name))
 	}
 
-	bot.Message(fmt.Sprintf("/w %s %s, you've join a Qsnipe! Have Fortnite open and be ready to play in %v.", u.Name, u.Name, time.Until(q.StartTime)))
+	bot.Message(fmt.Sprintf("/w %s %s, you've join a Qsnipe! Have Fortnite open, set your region to %s and be ready to play in %v.", u.Name, u.Name, q.Region, time.Until(q.StartTime)))
 
 }
 
 func (q *Qsnipe) Start(bot *Bot) {
-	time.Sleep(time.Until(q.StartTime))
+	time.Sleep( time.Duration(QSnipeLobbyDuration) * time.Minute)
 	for _, p := range q.Players {
-		bot.Message(fmt.Sprintf("/w %s Countdown is beginning, press \"PLAY\" on GO.", p.Name, p.Name)) 
+		bot.Message(fmt.Sprintf("/w %s Countdown is beginning, press \"PLAY\" on GO.", p.Name)) 
 		go func(b *Bot, u *User){
 			for i := 10; i > 0; i-- {
 				bot.Message(fmt.Sprintf("/w %s %v", u.Name, i))
@@ -238,6 +239,7 @@ func (q *Qsnipe) Start(bot *Bot) {
 			bot.Message(fmt.Sprintf("/w %s GO", u.Name))
 		}(bot, p)
 	}
+	bot.qsnipes[q.Region] =  bot.qsnipes[q.Region][1:]
 }
 
 var (
