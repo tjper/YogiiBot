@@ -286,3 +286,27 @@ func (bot *Bot) UpdateSubStatus(userID int) (err error) {
 	}
 	return
 }
+
+func (bot *Bot) UpdateQuote(userID int, quote string) (err error) {
+	query := `UPDATE [info].[Users]
+		  SET [Quote] = ?
+		  WHERE [UserID] = ?`
+	args := []interface{}{quote, userID}
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}
+
+func (bot *Bot) SelectQuote(userName string) (quote string, err error) {
+	query := `SELECT [Quote]
+		  FROM [info].[Users]
+		  WHERE [UserName] = ?`
+	args := []interface{}{userName}
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&quote); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}

@@ -37,7 +37,8 @@ var (
 	duoopen   = regexp.MustCompile(`^(\!duoopen)$`)
 	duoclose  = regexp.MustCompile(`^(\!duoclose)$`)
 
-	qsnipe = regexp.MustCompile(`^(\!qsnipe)(\s){1}(nae|naw|eu){1}$`)
+	quote    = regexp.MustCompile(`^(\!quote)(\s){1}("){1}([a-zA-Z0-9\s!?.]){1,254}("){1}$`)
+	getQuote = regexp.MustCompile(`^(\!)([a-zA-Z0-9_]){4,25}$`)
 
 	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
@@ -73,8 +74,6 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.Thanks(u, message)
 	case findYogi.MatchString(message):
 		bot.FindYogi(u, message)
-		//	case trivia.MatchString(message):
-		//		bot.Trivia(m, message)
 	case leaderboard.MatchString(message):
 		bot.LeaderBoard(u)
 	case redeemduo.MatchString(message):
@@ -91,8 +90,10 @@ func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
 		bot.DuoClose(u)
 	case redeemvbucks.MatchString(message):
 		bot.RedeemVBucks(u)
-	case qsnipe.MatchString(message):
-		bot.Qsnipe(u, message)
+	case quote.MatchString(message):
+		bot.Quote(u, message)
+	case getQuote.MatchString(message):
+		bot.GetQuote(u, message)
 	default:
 		bot.Default(u)
 	}
@@ -157,89 +158,33 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 	return u, nil
 }
 
-var (
-	QSnipeMaxPlayerCnt = 10
-	QSnipeLobbyDuration = 1 //minutes
-)
+func (bot *Bot) GetQuote(u *User, message string) {
+	a := strings.Split(message, "!")
+	author := a[1]
 
-type region string 
-
-const (
-	NAE region = "nae" 
-	NAW region = "naw"
-	EU region = "eu"
-)
-
-func (bot *Bot) Qsnipe(u *User, message string) {
-	a := strings.Split(message, "!qsnipe ")
-	qRegion := a[1]
-
-	qsnipes := bot.qsnipes[region(qRegion)]
-
-	for _, q := range qsnipes {
-		fmt.Printf("\n%v\n", q)
-	}
-
-	if len(qsnipes) < 1 {
-		bot.qsnipes[region(qRegion)] = append(qsnipes, NewQsnipe(bot, u, qRegion))
+	quote, err := bot.SelectQuote(author)
+	if err != nil {
+		fmt.Printf("Error - GetQuote: %s\n", err)
 		return
 	}
-	werefull := true
-	for _, q := range qsnipes {
-		if len(q.Players) >= QSnipeMaxPlayerCnt {
-			continue
-		}
-		if _, ok := q.Players[u.Id]; ok {
-			return
-		}
 
-		q.Join(bot, u)
-		werefull = false
-
-	}
-	if werefull {
-		bot.qsnipes[region(qRegion)] = append(qsnipes, NewQsnipe(bot, u, qRegion))
-	}
+	bot.Message(fmt.Sprintf("%s - %s", quote, author))
+	return
 }
 
-type Qsnipe struct {
-	Region region
-	StartTime time.Time
-	Players map[int]*User	
-}
-
-func NewQsnipe(bot *Bot, u *User, r string) (qs *Qsnipe) {
-	bot.Message(fmt.Sprintf("/w %s %s, you've started a %s Qsnipe! Have Fortnite open and be ready play in %v minute(s).", u.Name, u.Name, r, QSnipeLobbyDuration))
-	bot.Message(fmt.Sprintf("@%s has started a public %s Qsnipe! type \"!qsnipe %s\" to join.", u.Name, r, r))
-
-	qs = &Qsnipe{region(r), time.Now().Add(time.Minute * time.Duration(QSnipeLobbyDuration)), map[int]*User{u.Id: u}}
-	go qs.Start(bot)
-	return qs 
-}
-
-func (q *Qsnipe) Join(bot *Bot, u *User) {
-	q.Players[u.Id] = u
-	for _, p := range q.Players {
-		bot.Message(fmt.Sprintf("/w %s %s has joined the Qsnipe.", p.Name, u.Name))
+func (bot *Bot) Quote(u *User, message string) {
+	if !u.IsSubscriber {
+		return
 	}
 
-	bot.Message(fmt.Sprintf("/w %s %s, you've join a Qsnipe! Have Fortnite open, set your region to %s and be ready to play in %v.", u.Name, u.Name, q.Region, time.Until(q.StartTime)))
+	a := strings.Split(message, "!thanks ")
+	quote := a[1]
 
-}
-
-func (q *Qsnipe) Start(bot *Bot) {
-	time.Sleep( time.Duration(QSnipeLobbyDuration) * time.Minute)
-	for _, p := range q.Players {
-		bot.Message(fmt.Sprintf("/w %s Countdown is beginning, press \"PLAY\" on GO.", p.Name)) 
-		go func(b *Bot, u *User){
-			for i := 10; i > 0; i-- {
-				bot.Message(fmt.Sprintf("/w %s %v", u.Name, i))
-				time.Sleep(1 * time.Second)
-			}
-			bot.Message(fmt.Sprintf("/w %s GO", u.Name))
-		}(bot, p)
+	if err := bot.UpdateQuote(u.Id, quote); err != nil {
+		fmt.Printf("Error - Quote: %s\n", err)
+		return
 	}
-	bot.qsnipes[q.Region] =  bot.qsnipes[q.Region][1:]
+	return
 }
 
 var (
