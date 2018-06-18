@@ -37,14 +37,13 @@ var (
 	duoopen   = regexp.MustCompile(`^(\!duoopen)$`)
 	duoclose  = regexp.MustCompile(`^(\!duoclose)$`)
 
-	quote    = regexp.MustCompile(`^(\!quote)(\s){1}("){1}([a-zA-Z0-9\s!?.]){1,254}("){1}$`)
+	quote    = regexp.MustCompile(`^(\!quote)(\s){1}("){1}(.){1,254}("){1}$`)
 	getQuote = regexp.MustCompile(`^(\!)([a-zA-Z0-9_]){4,25}$`)
 
 	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
 
-func (bot *Bot) CmdInterpreter(m map[string]string, usermessage string) {
-	message := strings.ToLower(usermessage)
+func (bot *Bot) CmdInterpreter(m map[string]string, message string) {
 	u, err := bot.NewUser(m)
 	if err != nil {
 		fmt.Printf("Error - CmdInterpreter: %s", err)
@@ -110,6 +109,8 @@ type User struct {
 var ErrorInvalidIdentifiers = errors.New("Invalid user identifiers.")
 
 func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
+
+	fmt.Printf("\n\n%v\n\n", m)
 	u = new(User)
 	tuserID, ok := m["user-id"]
 	if !ok {
@@ -159,6 +160,7 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 }
 
 func (bot *Bot) GetQuote(u *User, message string) {
+	message  = strings.ToLower(message)
 	a := strings.Split(message, "!")
 	author := a[1]
 
@@ -168,7 +170,7 @@ func (bot *Bot) GetQuote(u *User, message string) {
 		return
 	}
 
-	bot.Message(fmt.Sprintf("%s - %s", quote, author))
+	bot.Message(fmt.Sprintf("\" %s \" - %s", quote, author))
 	return
 }
 
@@ -179,6 +181,7 @@ func (bot *Bot) Quote(u *User, message string) {
 
 	a := strings.Split(message, "!quote ")
 	quote := a[1]
+	quote = strings.Trim(quote, "\"")
 
 	if err := bot.UpdateQuote(u.Id, quote); err != nil {
 		fmt.Printf("Error - Quote: %s\n", err)
@@ -358,6 +361,7 @@ func (bot *Bot) Nuts(u *User) {
 }
 
 func (bot *Bot) Thanks(u *User, message string) {
+	message  = strings.ToLower(message)
 	a := strings.Split(message, "!thanks ")
 	referencedByUserName := a[1]
 
@@ -413,6 +417,7 @@ func (bot *Bot) GetNutty(u *User) {
 }
 
 func (bot *Bot) FindYogi(u *User, message string) {
+	message  = strings.ToLower(message)
 	a := strings.Split(message, "!findyogi ")
 	hash := a[1]
 
@@ -515,7 +520,7 @@ func (bot *Bot) FortniteResolveBet(u *User, message string) {
 	if len(bot.bet.winBets) == 0 || len(bot.bet.loseBets) == 0 {
 		return
 	}
-
+	message  = strings.ToLower(message)
 	a := strings.Split(message, "!fortniteresolvebet ")
 	result := a[1]
 
@@ -576,6 +581,7 @@ func (bot *Bot) FortniteCancelBet(u *User) {
 }
 
 func (bot *Bot) Win(u *User, message string) {
+	message  = strings.ToLower(message)
 	if bot.bet == nil {
 		return
 	}
@@ -610,6 +616,7 @@ func (bot *Bot) Win(u *User, message string) {
 }
 
 func (bot *Bot) Lose(u *User, message string) {
+	message  = strings.ToLower(message)
 	if bot.bet == nil {
 		return
 	}

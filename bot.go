@@ -254,9 +254,7 @@ var InvalidLineFormat = errors.New("Twitch IRC Line format is invalid.")
 
 func lineToMap(line string) (map[string]string, error) {
 	m := make(map[string]string)
-	aLine := strings.Split(line, ":")
-	tLine := aLine[0]
-	sets := strings.Split(tLine, ";")
+	sets := strings.Split(line, ";")
 	for _, v := range sets {
 		pair := strings.Split(v, "=")
 		if len(pair) != 2 {
