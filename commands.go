@@ -177,7 +177,7 @@ func (bot *Bot) Quote(u *User, message string) {
 		return
 	}
 
-	a := strings.Split(message, "!thanks ")
+	a := strings.Split(message, "!quote ")
 	quote := a[1]
 
 	if err := bot.UpdateQuote(u.Id, quote); err != nil {
@@ -445,11 +445,20 @@ func (bot *Bot) Default(u *User) {
 }
 
 func (bot *Bot) isNutty(u *User) bool {
-	ok, err := bot.UserIDExists(u.Id)
-	if err != nil && err != sql.ErrNoRows {
-		fmt.Printf("\nisNutty - Error: %s", err)
+	userName, err := bot.SelectUserName(u.Id)
+	if err  == sql.ErrNoRows {
+		return false
 	}
-	return ok
+	if err != nil {
+		fmt.Printf("\nis Nutty - Error: %s", err)
+	}
+	if userName == u.Name {
+		return true
+	}
+	if err = bot.UpdateUserName(u.Id, u.Name); err != nil {
+		fmt.Printf("\nisNutty - update: %s", err)
+	}
+	return true
 }
 
 type betRound struct {

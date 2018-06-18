@@ -108,6 +108,19 @@ func (bot *Bot) CreateUser(name string, userID int) (err error) {
 	return
 }
 
+func (bot *Bot) UpdateUserName(userID int, userName string) (err error) {
+	query := `UPDATE [info].[Users]
+		  SET [UserName] = ?
+		  WHERE [UserID] = ?`
+	args := []interface{}{userName, userID}
+
+	if _, err = bot.dbconn.Exec(query, args...); err != nil {
+		fmt.Printf("Error: %s", err)
+		return
+	}
+	return
+}
+
 func (bot *Bot) ReferenceExists(userID int) (ok bool, err error) {
 	query := `SELECT CASE
 			  WHEN [UserID] IS NOT NULL THEN 1
@@ -245,7 +258,7 @@ func (bot *Bot) SelectUserName(userID int) (username string, err error) {
 		  FROM [info].[Users]
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
-	if err = bot.dbconn.QueryRow(query, args...).Scan(&userID); err != nil && err != sql.ErrNoRows {
+	if err = bot.dbconn.QueryRow(query, args...).Scan(&username); err != nil && err != sql.ErrNoRows {
 		fmt.Printf("Error : %s", err)
 		return
 	}
