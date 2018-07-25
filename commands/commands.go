@@ -1,5 +1,4 @@
-// commands
-package main
+package command
 
 import (
 	"database/sql"
@@ -11,91 +10,26 @@ import (
 	"time"
 )
 
-var (
-	nuts     = regexp.MustCompile(`^(!nuts)$`)
-	points   = regexp.MustCompile(`^(!points)$`)
-	thanks   = regexp.MustCompile(`^(\!thanks)(\s){1}([a-zA-Z0-9_]){4,25}$`)
-	getnutty = regexp.MustCompile(`^(\!getnutty)$`)
+type Command struct {
+	Author  *User
+	Message string
+}
 
-	findYogi = regexp.MustCompile(`^(\!findyogi)(\s){1}([a-zA-z]){5}$`)
-
-	win                = regexp.MustCompile(`^(\!win)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
-	lose               = regexp.MustCompile(`^(\!lose)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
-	fortniteBet        = regexp.MustCompile(`^(\!fortnitebet)$`)
-	fortniteEndBet     = regexp.MustCompile(`^(\!fortniteendbet)$`)
-	fortniteResolveBet = regexp.MustCompile(`^(\!fortniteresolvebet)(\s){1}(win|lose){1}$`)
-	fortniteCancelBet  = regexp.MustCompile(`^(\!fortnitecancelbet)$`)
-
-	trivia = regexp.MustCompile(`^(\!trivia)(\s){1}(.)+$`)
-
-	leaderboard = regexp.MustCompile(`^(\!leaderboard)$`)
-
-	redeemduo = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
-	duoqueue  = regexp.MustCompile(`^(\!duoqueue)$`)
-	duoremove = regexp.MustCompile(`^(\!duoremove)$`)
-	duocharge = regexp.MustCompile(`^(\!duocharge)$`)
-	duoopen   = regexp.MustCompile(`^(\!duoopen)$`)
-	duoclose  = regexp.MustCompile(`^(\!duoclose)$`)
-
-	quote    = regexp.MustCompile(`^(\!quote)(\s){1}("){1}(.){1,254}("){1}$`)
-	getQuote = regexp.MustCompile(`^(\!)([a-zA-Z0-9_]){4,25}$`)
-
-	redeemvbucks = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
-)
-
-func (bot *Bot) CmdInterpreter(m map[string]string, message string) {
-	u, err := bot.NewUser(m)
+func NewCommand(bot *Bot, line string) (*Command, error) {
+	m, err := lineToMap(line)
 	if err != nil {
-		fmt.Printf("Error - CmdInterpreter: %s", err)
-	}
-	if !bot.isNutty(u) {
-		bot.GetNutty(u)
+		return nil, err
 	}
 
-	switch {
-	case win.MatchString(message):
-		bot.Win(u, message)
-	case lose.MatchString(message):
-		bot.Lose(u, message)
-	case fortniteBet.MatchString(message):
-		bot.FortniteBet(u)
-	case fortniteEndBet.MatchString(message):
-		bot.FortniteEndBet(u)
-	case fortniteCancelBet.MatchString(message):
-		bot.FortniteCancelBet(u)
-	case fortniteResolveBet.MatchString(message):
-		bot.FortniteResolveBet(u, message)
-	case points.MatchString(message):
-		bot.Points(u)
-	case nuts.MatchString(message):
-		bot.Nuts(u)
-	case thanks.MatchString(message):
-		bot.Thanks(u, message)
-	case findYogi.MatchString(message):
-		bot.FindYogi(u, message)
-	case leaderboard.MatchString(message):
-		bot.LeaderBoard(u)
-	case redeemduo.MatchString(message):
-		bot.RedeemDuo(u)
-	case duoqueue.MatchString(message):
-		bot.DuoQueue()
-	case duoremove.MatchString(message):
-		bot.DuoRemove(u)
-	case duocharge.MatchString(message):
-		bot.DuoCharge(u)
-	case duoopen.MatchString(message):
-		bot.DuoOpen(u)
-	case duoclose.MatchString(message):
-		bot.DuoClose(u)
-	case redeemvbucks.MatchString(message):
-		bot.RedeemVBucks(u)
-	case quote.MatchString(message):
-		bot.Quote(u, message)
-	case getQuote.MatchString(message):
-		bot.GetQuote(u, message)
-	default:
-		bot.Default(u)
+	command := new(Command)
+	command.Author, err = NewUser(bot, m)
+	if err != nil {
+		return nil, err
 	}
+	message := strings.Split(line, fmt.Sprintf("PRIVMSG %s :", bot.channel))
+	command.Message = message[1]
+
+	return command, nil
 }
 
 type User struct {
@@ -108,7 +42,7 @@ type User struct {
 
 var ErrorInvalidIdentifiers = errors.New("Invalid user identifiers.")
 
-func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
+func NewUser(bot *Bot, m map[string]string) (u *User, err error) {
 
 	fmt.Printf("\n\n%v\n\n", m)
 	u = new(User)
@@ -141,17 +75,17 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 	}
 
 	if u.IsSubscriber {
-		registered, err := bot.SelectSubStatus(u.Id)
+		registered, err := bot.dba.SelectSubStatus(u.Id)
 		if err != nil {
 			return u, err
 		}
 		if registered {
 			return u, nil
 		}
-		if err := bot.UpdateSubStatus(u.Id); err != nil {
+		if err := bot.dba.UpdateSubStatus(u.Id); err != nil {
 			return u, err
 		}
-		if err := bot.AddNuts(u.Id, 1.0); err != nil {
+		if err := bot.dba.AddNuts(u.Id, 1.0); err != nil {
 			return u, err
 		}
 	}
@@ -159,12 +93,95 @@ func (bot *Bot) NewUser(m map[string]string) (u *User, err error) {
 	return u, nil
 }
 
-func (bot *Bot) GetQuote(u *User, message string) {
-	message  = strings.ToLower(message)
+var (
+	nutsRE     = regexp.MustCompile(`^(!nuts)$`)
+	pointsRE   = regexp.MustCompile(`^(!points)$`)
+	thanksRE   = regexp.MustCompile(`^(\!thanks)(\s){1}([a-zA-Z0-9_]){4,25}$`)
+	getnuttyRE = regexp.MustCompile(`^(\!getnutty)$`)
+
+	findYogiRE = regexp.MustCompile(`^(\!findyogi)(\s){1}([a-zA-z]){5}$`)
+
+	winRE                = regexp.MustCompile(`^(\!win)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
+	loseRE               = regexp.MustCompile(`^(\!lose)(\s){1}([0-9]){0,3}(\.)?([0-9]){0,2}$`)
+	fortniteBetRE        = regexp.MustCompile(`^(\!fortnitebet)$`)
+	fortniteEndBetRE     = regexp.MustCompile(`^(\!fortniteendbet)$`)
+	fortniteResolveBetRE = regexp.MustCompile(`^(\!fortniteresolvebet)(\s){1}(win|lose){1}$`)
+	fortniteCancelBetRE  = regexp.MustCompile(`^(\!fortnitecancelbet)$`)
+
+	triviaRE = regexp.MustCompile(`^(\!trivia)(\s){1}(.)+$`)
+
+	leaderboardRE = regexp.MustCompile(`^(\!leaderboard)$`)
+
+	redeemduoRE = regexp.MustCompile(`^(\!redeem)(\s){1}(duo)$`)
+	duoqueueRE  = regexp.MustCompile(`^(\!duoqueue)$`)
+	duoremoveRE = regexp.MustCompile(`^(\!duoremove)$`)
+	duochargeRE = regexp.MustCompile(`^(\!duocharge)$`)
+	duoopenRE   = regexp.MustCompile(`^(\!duoopen)$`)
+	duocloseRE  = regexp.MustCompile(`^(\!duoclose)$`)
+
+	quoteRE    = regexp.MustCompile(`^(\!quote)(\s){1}("){1}(.){1,254}("){1}$`)
+	getQuoteRE = regexp.MustCompile(`^(\!)([a-zA-Z0-9_]){4,25}$`)
+
+	redeemvbucksRE = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
+)
+
+func (c *Command) Exec(bot *Bot) {
+	if !isNutty(bot, c.Author) {
+		getNutty(bot, c.Author)
+	}
+
+	switch {
+	case winRE.MatchString(c.Message):
+		win(bot, c.Author, c.Message)
+	case loseRE.MatchString(c.Message):
+		lose(bot, c.Author, c.Message)
+	case fortniteBetRE.MatchString(c.Message):
+		fortniteBet(bot, c.Author)
+	case fortniteEndBetRE.MatchString(c.Message):
+		fortniteEndBet(bot, c.Author)
+	case fortniteCancelBetRE.MatchString(c.Message):
+		fortniteCancelBet(bot, c.Author)
+	case fortniteResolveBetRE.MatchString(c.Message):
+		fortniteResolveBet(bot, c.Author, c.Message)
+	case pointsRE.MatchString(c.Message):
+		points(bot, c.Author)
+	case nutsRE.MatchString(c.Message):
+		nuts(bot, c.Author)
+	case thanksRE.MatchString(c.Message):
+		thanks(bot, c.Author, c.Message)
+	case findYogiRE.MatchString(c.Message):
+		findYogi(bot, c.Author, c.Message)
+	case leaderboardRE.MatchString(c.Message):
+		leaderBoard(bot, c.Author)
+	case redeemduoRE.MatchString(c.Message):
+		redeemDuo(bot, c.Author)
+	case duoqueueRE.MatchString(c.Message):
+		duoQueue(bot)
+	case duoremoveRE.MatchString(c.Message):
+		duoRemove(bot, c.Author)
+	case duochargeRE.MatchString(c.Message):
+		duoCharge(bot, c.Author)
+	case duoopenRE.MatchString(c.Message):
+		duoOpen(bot, c.Author)
+	case duocloseRE.MatchString(c.Message):
+		duoClose(bot, c.Author)
+	case redeemvbucksRE.MatchString(c.Message):
+		redeemVBucks(bot, c.Author)
+	case quoteRE.MatchString(c.Message):
+		quote(bot, c.Author, c.Message)
+	case getQuoteRE.MatchString(c.Message):
+		getQuote(bot, c.Author, c.Message)
+	default:
+		dne(bot, c.Author)
+	}
+}
+
+func getQuote(in dba.Selecter, bot *Bot, u *User, message string) {
+	message = strings.ToLower(message)
 	a := strings.Split(message, "!")
 	author := a[1]
 
-	quote, err := bot.SelectQuote(author)
+	quote, err := in.SelectQuote(author)
 	if err != nil {
 		fmt.Printf("Error - GetQuote: %s\n", err)
 		return
@@ -174,7 +191,7 @@ func (bot *Bot) GetQuote(u *User, message string) {
 	return
 }
 
-func (bot *Bot) Quote(u *User, message string) {
+func quote(in dba.Updater, u *User, message string) {
 	if !u.IsSubscriber {
 		return
 	}
@@ -183,7 +200,7 @@ func (bot *Bot) Quote(u *User, message string) {
 	quote := a[1]
 	quote = strings.Trim(quote, "\"")
 
-	if err := bot.UpdateQuote(u.Id, quote); err != nil {
+	if err := in.UpdateQuote(u.Id, quote); err != nil {
 		fmt.Printf("Error - Quote: %s\n", err)
 		return
 	}
@@ -196,7 +213,7 @@ var (
 	DuoQueueLimit = 3
 )
 
-func (bot *Bot) RedeemDuo(u *User) {
+func redeemDuo(in dba.Selecter, bot *Bot, u *User) {
 	if !bot.duoopen {
 		return
 	}
@@ -210,7 +227,7 @@ func (bot *Bot) RedeemDuo(u *User) {
 		}
 	}
 
-	nuts, err := bot.SelectNuts(u.Id)
+	nuts, err := in.SelectNuts(u.Id)
 	if err != nil {
 		return
 	}
@@ -221,7 +238,7 @@ func (bot *Bot) RedeemDuo(u *User) {
 	bot.duoqueue = append(bot.duoqueue, u)
 }
 
-func (bot *Bot) DuoCharge(u *User) {
+func duoCharge(in dba.Redeemer, bot *Bot, u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
@@ -232,10 +249,10 @@ func (bot *Bot) DuoCharge(u *User) {
 
 	r := bot.duoqueue[0]
 
-	if err := bot.InsertRedeem(r.Id, TypeDuo, DuoCost); err != nil {
+	if err := in.InsertRedeem(r.Id, TypeDuo, DuoCost); err != nil {
 		return
 	}
-	if err := bot.RemoveNuts(r.Id, DuoCost); err != nil {
+	if err := in.RemoveNuts(r.Id, DuoCost); err != nil {
 		fmt.Printf("RemoveNuts - Error: %s\n", err)
 		return
 	}
@@ -243,7 +260,7 @@ func (bot *Bot) DuoCharge(u *User) {
 	bot.duoqueue = bot.duoqueue[1:]
 }
 
-func (bot *Bot) DuoRemove(u *User) {
+func duoRemove(bot *Bot, u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
@@ -254,7 +271,7 @@ func (bot *Bot) DuoRemove(u *User) {
 	bot.duoqueue = bot.duoqueue[1:]
 }
 
-func (bot *Bot) DuoQueue() {
+func duoQueue(bot *Bot) {
 	var msg string
 	for i, u := range bot.duoqueue {
 		msg = msg + fmt.Sprintf("%v. %s   ", i+1, u.Name)
@@ -262,7 +279,7 @@ func (bot *Bot) DuoQueue() {
 	bot.Message(msg)
 }
 
-func (bot *Bot) DuoOpen(u *User) {
+func duoOpen(bot *Bot, u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
@@ -270,7 +287,7 @@ func (bot *Bot) DuoOpen(u *User) {
 	bot.Message(fmt.Sprintf("DUOS is now open! type \"!redeem duo\" to play with penutty."))
 }
 
-func (bot *Bot) DuoClose(u *User) {
+func duoClose(bot *Bot, u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
@@ -278,10 +295,10 @@ func (bot *Bot) DuoClose(u *User) {
 	bot.Message(fmt.Sprintf("DUOS is now closed."))
 }
 
-func (bot *Bot) RedeemVBucks(u *User) {
+func redeemVBucks(in dba.SelectRedeemer, bot *Bot, u *User) {
 	cost := 8.00
 	vbucks := 2
-	nuts, err := bot.SelectNuts(u.Id)
+	nuts, err := in.SelectNuts(u.Id)
 	if err != nil {
 		fmt.Printf("SelectNuts - Error: %s\n", err)
 		return
@@ -289,19 +306,19 @@ func (bot *Bot) RedeemVBucks(u *User) {
 	if nuts < cost {
 		return
 	}
-	if err := bot.InsertRedeem(u.Id, vbucks, cost); err != nil {
+	if err := in.InsertRedeem(u.Id, vbucks, cost); err != nil {
 		return
 	}
-	if err := bot.RemoveNuts(u.Id, cost); err != nil {
+	if err := in.RemoveNuts(u.Id, cost); err != nil {
 		fmt.Printf("RemoveNuts - Error: %s\n", err)
 		return
 	}
 	bot.Message(fmt.Sprintf("@%s has redeemed VBUCKS!", u.Name))
 }
 
-func (bot *Bot) LeaderBoard(u *User) {
+func leaderBoard(in dba.TopSelecter, bot *Bot, u *User) {
 
-	set, err := bot.SelectTopUsersByNuts()
+	set, err := in.SelectTopUsersByNuts()
 	if err != nil {
 		fmt.Printf("Error - LeaderBoard: %s", err)
 		return
@@ -314,63 +331,45 @@ func (bot *Bot) LeaderBoard(u *User) {
 	bot.Message(res)
 }
 
-//func (bot *Bot) Trivia(m map[string]string, message string) {
-//	if bot.triviaquestion.Question == "" {
-//		return
-//	}
-//
-//	userID, userName, err := getIdentifiers(m)
-//	if err != nil {
-//		fmt.Printf("Error: %s", err)
-//		return
-//	}
-//
-//	if !bot.isNutty(userID, userName) {
-//		bot.GetNutty(m)
-//	}
-//
-//	a := strings.Split(message, "!trivia ")
-//	answer := a[1]
-//	if strings.ToLower(bot.triviaquestion.Answer) != answer {
-//		return
-//	}
-//
-//	reward := 10.0
-//	if err = bot.AddNuts(userID, reward); err != nil {
-//		fmt.Printf("Trivia - Error: %s\n", err)
-//		return
-//	}
-//	bot.Message(fmt.Sprintf("@%s has answered the trivia question correctly! You've been rewarded %v nuts!", userName, reward))
-//	bot.triviaquestion = TriviaQuestion{}
-//}
-
-func (bot *Bot) Points(u *User) {
-	points, err := bot.SelectChatPoints(u.Id)
-	if err != nil {
+func trivia(in dba.Adder, bot *Bot, u *User, message string) {
+	if bot.triviaquestion.Question == "" {
 		return
 	}
-	bot.Message(fmt.Sprintf("@%s - Chat Points = %v", u.Name, points))
+
+	a := strings.Split(message, "!trivia ")
+	answer := a[1]
+	if strings.ToLower(bot.triviaquestion.Answer) != answer {
+		return
+	}
+
+	reward := 10.0
+	if err := in.AddNuts(u.Id, reward); err != nil {
+		fmt.Printf("Trivia - Error: %s\n", err)
+		return
+	}
+	bot.Message(fmt.Sprintf("@%s has answered the trivia question correctly! You've been rewarded %v nuts!", u.Name, reward))
+	bot.triviaquestion = TriviaQuestion{}
 }
 
-func (bot *Bot) Nuts(u *User) {
-	nuts, err := bot.SelectNuts(u.Id)
+func nuts(in dba.Selecter, bot *Bot, u *User) {
+	nuts, err := in.SelectNuts(u.Id)
 	if err != nil {
 		return
 	}
 	bot.Message(fmt.Sprintf("@%s - Nuts = %v", u.Name, nuts))
 }
 
-func (bot *Bot) Thanks(u *User, message string) {
-	message  = strings.ToLower(message)
+func thanks(in dba.Thanker, bot *Bot, u *User, message string) {
+	message = strings.ToLower(message)
 	a := strings.Split(message, "!thanks ")
 	referencedByUserName := a[1]
 
-	referencedByUserID, err := bot.SelectUserID(referencedByUserName)
+	referencedByUserID, err := in.SelectUserID(referencedByUserName)
 	if err != nil && err != sql.ErrNoRows {
 		return
 	}
 
-	nuts, err := bot.SelectNuts(u.Id)
+	nuts, err := in.SelectNuts(u.Id)
 	if err != nil {
 		return
 	}
@@ -383,12 +382,12 @@ func (bot *Bot) Thanks(u *User, message string) {
 	case u.Id == referencedByUserID:
 		fmt.Printf("\n%s- attempted to thank themself.", u.Name)
 		return
-	case !bot.isNutty(&User{Id: referencedByUserID, Name: referencedByUserName}):
+	case !isNutty(bot, &User{Id: referencedByUserID, Name: referencedByUserName}):
 		fmt.Printf("\n%s - attempted to thank someone who hasn't ran !getnutty.", u.Name, referencedByUserName)
 		return
 	}
 
-	ok, err := bot.ReferenceExists(u.Id)
+	ok, err := in.ReferenceExists(u.Id)
 	switch {
 	case err != nil && err != sql.ErrNoRows:
 		return
@@ -397,11 +396,11 @@ func (bot *Bot) Thanks(u *User, message string) {
 		return
 	}
 
-	if err := bot.CreateReference(u.Id, referencedByUserID); err != nil && err != sql.ErrNoRows {
+	if err := in.CreateReference(u.Id, referencedByUserID); err != nil && err != sql.ErrNoRows {
 		return
 	}
 	reward := 0.25
-	if err := bot.AddNuts(referencedByUserID, reward); err != nil {
+	if err := in.AddNuts(referencedByUserID, reward); err != nil {
 		return
 	}
 
@@ -409,15 +408,15 @@ func (bot *Bot) Thanks(u *User, message string) {
 
 }
 
-func (bot *Bot) GetNutty(u *User) {
-	if err := bot.CreateUser(u.Name, u.Id); err != nil {
+func getNutty(in dba.CreateUserer, bot *Bot, u *User) {
+	if err := in.CreateUser(u.Name, u.Id); err != nil {
 		return
 	}
 	bot.Message(fmt.Sprintf("/w %s Rufffff! Welcome to penutty's channel %s! type !how in the channel chat to see how to earn !nuts. Nuts can be redeemed for VBUCKS, playing duos with penutty, and more!", u.Name, u.Name))
 }
 
-func (bot *Bot) FindYogi(u *User, message string) {
-	message  = strings.ToLower(message)
+func findYogi(in dba.Adder, bot *Bot, u *User, message string) {
+	message = strings.ToLower(message)
 	a := strings.Split(message, "!findyogi ")
 	hash := a[1]
 
@@ -428,30 +427,30 @@ func (bot *Bot) FindYogi(u *User, message string) {
 
 	bot.yogihashs[hash] = true
 	reward := 0.1
-	if err := bot.AddNuts(u.Id, reward); err != nil {
+	if err := in.AddNuts(u.Id, reward); err != nil {
 		fmt.Errorf("Error: %s\n", err)
 		return
 	}
 	bot.Message(fmt.Sprintf("@%s found Yogi!!! You've been rewarded %v chat points.", u.Name, reward))
 }
 
-func (bot *Bot) Default(u *User) {
+func dne(in dba.Adder, bot *Bot, u *User) {
 	lastMsg, ok := bot.lastMsg[u.Id]
 	if ok && time.Since(lastMsg) <= 10*time.Minute {
 		return
 	}
 
 	reward := 0.005
-	if err := bot.AddNuts(u.Id, reward); err != nil {
+	if err := in.AddNuts(u.Id, reward); err != nil {
 		return
 	}
 
 	bot.lastMsg[u.Id] = time.Now()
 }
 
-func (bot *Bot) isNutty(u *User) bool {
-	userName, err := bot.SelectUserName(u.Id)
-	if err  == sql.ErrNoRows {
+func isNutty(in dba.UserNameSelectUpdater, bot *Bot, u *User) bool {
+	userName, err := in.SelectUserName(u.Id)
+	if err == sql.ErrNoRows {
 		return false
 	}
 	if err != nil {
@@ -460,7 +459,7 @@ func (bot *Bot) isNutty(u *User) bool {
 	if userName == u.Name {
 		return true
 	}
-	if err = bot.UpdateUserName(u.Id, u.Name); err != nil {
+	if err = in.UpdateUserName(u.Id, u.Name); err != nil {
 		fmt.Printf("\nisNutty - update: %s", err)
 	}
 	return true
@@ -481,7 +480,7 @@ type bet struct {
 	amount float64
 }
 
-func (bot *Bot) FortniteBet(u *User) {
+func fortniteBet(bot *Bot, u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
@@ -499,7 +498,7 @@ func (bot *Bot) FortniteBet(u *User) {
 	bot.Message("BETTING BEGINS")
 }
 
-func (bot *Bot) FortniteEndBet(u *User) {
+func fortniteEndBet(bot *Bot, u *User) {
 	if !u.IsMod && !u.IsBroadcaster {
 		return
 	}
@@ -507,7 +506,7 @@ func (bot *Bot) FortniteEndBet(u *User) {
 	bot.Message("BETTING ENDS")
 }
 
-func (bot *Bot) FortniteResolveBet(u *User, message string) {
+func fortniteResolveBet(bot *Bot, u *User, message string) {
 	if bot.bet == nil {
 		return
 	}
@@ -520,7 +519,7 @@ func (bot *Bot) FortniteResolveBet(u *User, message string) {
 	if len(bot.bet.winBets) == 0 || len(bot.bet.loseBets) == 0 {
 		return
 	}
-	message  = strings.ToLower(message)
+	message = strings.ToLower(message)
 	a := strings.Split(message, "!fortniteresolvebet ")
 	result := a[1]
 
@@ -539,7 +538,7 @@ func (bot *Bot) FortniteResolveBet(u *User, message string) {
 	}
 
 	for _, b := range debitors {
-		if err := bot.RemoveNuts(b.userID, b.amount); err != nil {
+		if err := bot.dba.RemoveNuts(b.userID, b.amount); err != nil {
 			fmt.Printf("FortniteResolveBet - RemoveNuts - Error: %s\n", err)
 			return
 		}
@@ -547,7 +546,7 @@ func (bot *Bot) FortniteResolveBet(u *User, message string) {
 
 	for _, b := range profitors {
 		reward := totalDebits * (b.amount / totalProfits)
-		if err := bot.AddNuts(b.userID, reward); err != nil {
+		if err := bot.dba.AddNuts(b.userID, reward); err != nil {
 			fmt.Printf("FortniteResolveBet - AddNuts - Error: %s\n", err)
 			return
 		}
@@ -561,7 +560,7 @@ func (bot *Bot) FortniteResolveBet(u *User, message string) {
 	}
 }
 
-func (bot *Bot) FortniteCancelBet(u *User) {
+func fortniteCancelBet(bot *Bot, u *User) {
 	if bot.bet == nil {
 		return
 	}
@@ -580,8 +579,8 @@ func (bot *Bot) FortniteCancelBet(u *User) {
 	bot.Message("BET CANCELLED.")
 }
 
-func (bot *Bot) Win(u *User, message string) {
-	message  = strings.ToLower(message)
+func win(bot *Bot, u *User, message string) {
+	message = strings.ToLower(message)
 	if bot.bet == nil {
 		return
 	}
@@ -599,7 +598,7 @@ func (bot *Bot) Win(u *User, message string) {
 		fmt.Printf("\nWin - Error: %s", err)
 	}
 
-	nuts, err := bot.SelectNuts(u.Id)
+	nuts, err := bot.dba.SelectNuts(u.Id)
 	if err != nil {
 		fmt.Printf("\nLose - Error: %s", err)
 		return
@@ -615,8 +614,8 @@ func (bot *Bot) Win(u *User, message string) {
 	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty winning!", u.Name, amount))
 }
 
-func (bot *Bot) Lose(u *User, message string) {
-	message  = strings.ToLower(message)
+func lose(bot *Bot, u *User, message string) {
+	message = strings.ToLower(message)
 	if bot.bet == nil {
 		return
 	}
@@ -635,7 +634,7 @@ func (bot *Bot) Lose(u *User, message string) {
 		return
 	}
 
-	nuts, err := bot.SelectNuts(u.Id)
+	nuts, err := bot.dba.SelectNuts(u.Id)
 	if err != nil {
 		fmt.Printf("\nLose - Error: %s", err)
 		return
@@ -650,4 +649,48 @@ func (bot *Bot) Lose(u *User, message string) {
 	bot.bet.betees[u.Id] = true
 	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", u.Name, amount))
 
+}
+
+var InvalidLineFormat = errors.New("Twitch IRC Line format is invalid.")
+
+func lineToMap(line string) (map[string]string, error) {
+	m := make(map[string]string)
+	sets := strings.Split(line, ";")
+	for _, v := range sets {
+		pair := strings.Split(v, "=")
+		if len(pair) != 2 {
+			return m, InvalidLineFormat
+		}
+		if pair[0] == "@badges" {
+			var err error
+			m, err = badgesToMap(pair)
+			if err != nil {
+				fmt.Printf("err: %s\n", err)
+			}
+		} else {
+			m[pair[0]] = pair[1]
+		}
+	}
+	return m, nil
+}
+
+var InvalidBadgesFormat = errors.New("Twitch IRC Badge format is invalid.")
+
+func badgesToMap(badges []string) (map[string]string, error) {
+	m := make(map[string]string)
+	if len(badges) != 2 {
+		return m, InvalidBadgesFormat
+	}
+	bdgs := strings.Split(badges[1], ",")
+	if len(bdgs) != 3 {
+		return m, InvalidBadgesFormat
+	}
+	for _, b := range bdgs {
+		set := strings.Split(b, "/")
+		if len(set) != 2 {
+			return m, InvalidBadgesFormat
+		}
+		m[set[0]] = set[1]
+	}
+	return m, nil
 }

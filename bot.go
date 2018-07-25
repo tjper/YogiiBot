@@ -2,9 +2,7 @@ package main
 
 import (
 	"bufio"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html"
 	"io/ioutil"
@@ -42,7 +40,7 @@ type Bot struct {
 	duoqueue []*User
 	duoopen  bool
 
-	dbconn *sql.DB
+	dba *DatabaseAccess
 }
 
 type Vote struct {
@@ -202,9 +200,12 @@ func main() {
 		ircbot.channel = "#" + channel
 		ircbot.writeSettingsDB()
 	}
-	go ircbot.OpenUI()
-	ircbot.OpenNuttyDB()
-	defer ircbot.CloseNuttyDB()
+	ircbot.dba, err = NewDatabaseAccess()
+	if err != nil {
+		return
+	}
+
+	defer ircbot.dba.CloseNuttyDB()
 	go ircbot.WildYogi()
 	go ircbot.TriviaQuestion()
 
@@ -234,62 +235,39 @@ func main() {
 			fmt.Fprintf(ircbot.conn, "PONG %s\r\n", pongdata[1])
 		} else if strings.Contains(line, ".tmi.twitch.tv PRIVMSG "+ircbot.channel) {
 
-			m, err := lineToMap(line)
+			command, err := NewCommand(ircbot, line)
 			if err != nil {
-				fmt.Printf("Error: %s", err)
-			}
-			if m["display-name"] == "Nightbot" {
 				continue
 			}
-			message := strings.Split(line, fmt.Sprintf("PRIVMSG %s :", ircbot.channel))
-			if len(message) >= 2 {
-				go ircbot.CmdInterpreter(m, message[1])
-			}
-
+			go command.Exec(ircbot)
 		}
 	}
 }
 
-var InvalidLineFormat = errors.New("Twitch IRC Line format is invalid.")
-
-func lineToMap(line string) (map[string]string, error) {
-	m := make(map[string]string)
-	sets := strings.Split(line, ";")
-	for _, v := range sets {
-		pair := strings.Split(v, "=")
-		if len(pair) != 2 {
-			return m, InvalidLineFormat
-		}
-		if pair[0] == "@badges" {
-			var err error
-			m, err = badgesToMap(pair)
-			if err != nil {
-				fmt.Printf("err: %s\n", err)
-			}
-		} else {
-			m[pair[0]] = pair[1]
-		}
+func (bot *Bot) readSettingsDB(channel string) bool {
+	settings, err := ioutil.ReadFile("settings#" + channel + ".ini")
+	bot.channel = "#" + channel
+	if err != nil {
+		fmt.Println("Unable to read SettingsDB from " + channel)
+		return false
 	}
-	return m, nil
+	split1 := strings.Split(string(settings), "\n")
+	for _, splitted1 := range split1 {
+		split2 := strings.Split(splitted1, "|")
+		if split2[0] == "nickname" {
+			bot.nick = split2[1]
+		}
+
+	}
+	return true
 }
 
-var InvalidBadgesFormat = errors.New("Twitch IRC Badge format is invalid.")
-
-func badgesToMap(badges []string) (map[string]string, error) {
-	m := make(map[string]string)
-	if len(badges) != 2 {
-		return m, InvalidBadgesFormat
+func (bot *Bot) writeSettingsDB() {
+	dst, err := os.Create("settings" + bot.channel + ".ini")
+	defer dst.Close()
+	if err != nil {
+		fmt.Println("Can't write to SettingsDB from " + bot.channel)
+		return
 	}
-	bdgs := strings.Split(badges[1], ",")
-	if len(bdgs) != 3 {
-		return m, InvalidBadgesFormat
-	}
-	for _, b := range bdgs {
-		set := strings.Split(b, "/")
-		if len(set) != 2 {
-			return m, InvalidBadgesFormat
-		}
-		m[set[0]] = set[1]
-	}
-	return m, nil
+	fmt.Fprintf(dst, "nickname|"+bot.nick+"\n")
 }
