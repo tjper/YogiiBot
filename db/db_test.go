@@ -52,10 +52,14 @@ func Test_UserNameExists(t *testing.T) {
 		  FROM \[info\]\.\[Users\]
 		  WHERE \[UserName\] = \?$`
 
+	c, err := NewClient()
+	c.db = db
+	assert.Nil(t, err)
+
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectQuery(sql).WithArgs(uname0).WillReturnRows(sqlmock.NewRows([]string{"0"}).AddRow(te.rowval))
-			res, err := UserNameExists(db, uname0)
+			res, err := c.UserNameExists(uname0)
 			assert.Nil(t, err)
 			assert.Equal(t, te.expected, res)
 
@@ -79,6 +83,10 @@ func Test_UserIDExists(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	c.db = db
+	assert.Nil(t, err)
+
 	sql := `^SELECT CASE
 			WHEN \[UserID\] IS NOT NULL THEN 1
 			ELSE 0
@@ -89,7 +97,7 @@ func Test_UserIDExists(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectQuery(sql).WithArgs(uid0).WillReturnRows(sqlmock.NewRows([]string{"0"}).AddRow(te.rowval))
-			res, err := UserIDExists(db, uid0)
+			res, err := c.UserIDExists(uid0)
 			assert.Nil(t, err)
 			assert.Equal(t, te.expected, res)
 
@@ -109,9 +117,14 @@ func Test_CreateUser(t *testing.T) {
 		test{ErrorNotOneRowAffected, 0},
 		test{ErrorNotOneRowAffected, 2},
 	}
+
 	db, mock, err := sqlmock.New()
 	assert.Nil(t, err)
 	defer db.Close()
+
+	c, err := NewClient()
+	c.db = db
+	assert.Nil(t, err)
 
 	sql := `^INSERT INTO \[info\]\.\[Users\] \(\[Username\], \[UserID\]\)
 		VALUES\(\?, \?\)$`
@@ -120,7 +133,7 @@ func Test_CreateUser(t *testing.T) {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectExec(sql).WithArgs(uname0, uid0).WillReturnResult(sqlmock.NewResult(0, te.affectedRows))
 
-			err := CreateUser(db, uname0, uid0)
+			err := c.CreateUser(uname0, uid0)
 			assert.Equal(t, te.expected, err)
 
 			assert.Nil(t, mock.ExpectationsWereMet())
@@ -139,9 +152,14 @@ func Test_UpdateUserName(t *testing.T) {
 		test{ErrorNotOneRowAffected, 0},
 		test{ErrorNotOneRowAffected, 2},
 	}
+
 	db, mock, err := sqlmock.New()
 	assert.Nil(t, err)
 	defer db.Close()
+
+	c, err := NewClient()
+	c.db = db
+	assert.Nil(t, err)
 
 	sql := `^UPDATE \[info\]\.\[Users\]
 		SET \[UserName\] = \?
@@ -151,7 +169,7 @@ func Test_UpdateUserName(t *testing.T) {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectExec(sql).WithArgs(uname0, uid0).WillReturnResult(sqlmock.NewResult(0, te.affectedRows))
 
-			err := UpdateUserName(db, uid0, uname0)
+			err := c.UpdateUserName(uid0, uname0)
 			assert.Equal(t, te.expected, err)
 
 			assert.Nil(t, mock.ExpectationsWereMet())
@@ -175,6 +193,10 @@ func Test_ReferenceExists(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sql := `^SELECT CASE
 			WHEN \[UserID\] IS NOT NULL THEN 1
 			ELSE 0
@@ -185,7 +207,7 @@ func Test_ReferenceExists(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectQuery(sql).WithArgs(uid0).WillReturnRows(sqlmock.NewRows([]string{"0"}).AddRow(te.rowval))
-			res, err := ReferenceExists(db, uid0)
+			res, err := c.ReferenceExists(uid0)
 			assert.Nil(t, err)
 			assert.Equal(t, te.expected, res)
 
@@ -206,9 +228,14 @@ func Test_CreateReference(t *testing.T) {
 		test{ErrorNotOneRowAffected, 0},
 		test{ErrorNotOneRowAffected, 2},
 	}
+
 	db, mock, err := sqlmock.New()
 	assert.Nil(t, err)
 	defer db.Close()
+
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
 
 	sql := `^INSERT INTO \[info\]\.\[References\] \(\[UserID\], \[ReferencedByUserID\]\)
 		VALUES\(\?, \?\)$`
@@ -217,7 +244,7 @@ func Test_CreateReference(t *testing.T) {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectExec(sql).WithArgs(uid0, uid1).WillReturnResult(sqlmock.NewResult(0, te.affectedRows))
 
-			err := CreateReference(db, uid0, uid1)
+			err := c.CreateReference(uid0, uid1)
 			assert.Equal(t, te.expected, err)
 
 			assert.Nil(t, mock.ExpectationsWereMet())
@@ -240,6 +267,10 @@ func Test_AddNuts(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sql := `^UPDATE \[info\]\.\[Users\]
 		SET Nuts = Nuts \+ \?
 		WHERE \[UserID\] = \?$`
@@ -248,7 +279,7 @@ func Test_AddNuts(t *testing.T) {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectExec(sql).WithArgs(nut0, uid0).WillReturnResult(sqlmock.NewResult(0, te.affectedRows))
 
-			err := AddNuts(db, uid0, nut0)
+			err := c.AddNuts(uid0, nut0)
 			assert.Equal(t, te.expected, err)
 
 			assert.Nil(t, mock.ExpectationsWereMet())
@@ -271,6 +302,10 @@ func Test_RemoveNuts(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sql := `^UPDATE \[info\]\.\[Users\]
 		SET Nuts = Nuts - \?
 		WHERE \[UserID\] = \?$`
@@ -279,7 +314,7 @@ func Test_RemoveNuts(t *testing.T) {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 			mock.ExpectExec(sql).WithArgs(nut0, uid0).WillReturnResult(sqlmock.NewResult(0, te.affectedRows))
 
-			err := RemoveNuts(db, uid0, nut0)
+			err := c.RemoveNuts(uid0, nut0)
 			assert.Equal(t, te.expected, err)
 
 			assert.Nil(t, mock.ExpectationsWereMet())
@@ -303,6 +338,10 @@ func Test_SelectNuts(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^SELECT Nuts
 		FROM \[info\]\.\[Users\] 
 		WHERE \[UserID\] = \?$`
@@ -313,7 +352,7 @@ func Test_SelectNuts(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			nuts, err := SelectNuts(db, uid0)
+			nuts, err := c.SelectNuts(uid0)
 			assert.Equal(t, te.expectedErr, err)
 			assert.Equal(t, te.expectedNuts, nuts)
 
@@ -336,6 +375,10 @@ func Test_SelectTopUsersByNuts(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^SELECT TOP 5 \[UserName\], \[Nuts\]
 		   FROM \[info\]\.\[Users\] 
 		   WHERE \[UserName\] NOT IN\(\?,\?\)
@@ -347,7 +390,7 @@ func Test_SelectTopUsersByNuts(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			_, err := SelectTopUsersByNuts(db)
+			_, err := c.SelectTopUsersByNuts()
 			assert.Equal(t, te.expectedErr, err)
 		})
 	}
@@ -370,6 +413,10 @@ func Test_SelectUserID(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^SELECT \[UserID\]
 		    FROM \[info\]\.\[Users\]
 		    WHERE \[UserName\] = \?`
@@ -380,7 +427,7 @@ func Test_SelectUserID(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			userID, err := SelectUserID(db, uname1)
+			userID, err := c.SelectUserID(uname1)
 			assert.Equal(t, te.expectedErr, err)
 			assert.Equal(t, te.expectedUserId, userID)
 		})
@@ -403,6 +450,10 @@ func Test_SelectUserName(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^SELECT \[UserName\]
 		    FROM \[info\]\.\[Users\]
 		    WHERE \[UserID\] = \?`
@@ -413,7 +464,7 @@ func Test_SelectUserName(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			userName, err := SelectUserName(db, uid1)
+			userName, err := c.SelectUserName(uid1)
 			assert.Equal(t, te.expectedErr, err)
 			assert.Equal(t, te.expectedUserName, userName)
 		})
@@ -436,6 +487,10 @@ func Test_InsertRedeem(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^INSERT INTO \[info\]\.\[Redems\] \(\[UserID\], \[NutCost\], \[ItemID\]\)
 		   VALUES \( \?, \?, \?\)$`
 
@@ -446,7 +501,7 @@ func Test_InsertRedeem(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			err := InsertRedeem(db, uid1, item0, nut1)
+			err := c.InsertRedeem(uid1, item0, nut1)
 			assert.Equal(t, te.expectedErr, err)
 		})
 	}
@@ -469,6 +524,10 @@ func Test_SelectSubStatus(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^SELECT \[HasSubbed\]
 		    FROM \[info\]\.\[Users\]
 		    WHERE \[UserID\] = \?$`
@@ -480,7 +539,7 @@ func Test_SelectSubStatus(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			status, err := SelectSubStatus(db, uid1)
+			status, err := c.SelectSubStatus(uid1)
 			assert.Equal(t, te.expectedErr, err)
 			assert.Equal(t, te.expectedSubStatus, status)
 		})
@@ -503,6 +562,10 @@ func Test_UpdateSubStatus(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^UPDATE \[info\]\.\[Users\]
 		  SET \[HasSubbed\] = 1
 		  WHERE \[UserID\] = \?$`
@@ -514,7 +577,7 @@ func Test_UpdateSubStatus(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			err := UpdateSubStatus(db, uid1)
+			err := c.UpdateSubStatus(uid1)
 			assert.Equal(t, te.expectedErr, err)
 		})
 	}
@@ -536,6 +599,10 @@ func Test_UpdateQuote(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^UPDATE \[info\]\.\[Users\]
 		  SET \[Quote\] = \? 
 		  WHERE \[UserID\] = \?$`
@@ -547,7 +614,7 @@ func Test_UpdateQuote(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			err := UpdateQuote(db, uid1, quote0)
+			err := c.UpdateQuote(uid1, quote0)
 			assert.Equal(t, te.expectedErr, err)
 		})
 	}
@@ -570,6 +637,10 @@ func Test_SelectQuote(t *testing.T) {
 	assert.Nil(t, err)
 	defer db.Close()
 
+	c, err := NewClient()
+	assert.Nil(t, err)
+	c.db = db
+
 	sqlstr := `^SELECT \[Quote\]
 		    FROM \[info\]\.\[Users\]
 		    WHERE \[UserName\] = \?$`
@@ -581,7 +652,7 @@ func Test_SelectQuote(t *testing.T) {
 	for i, te := range tests {
 		t.Run("test_"+strconv.Itoa(i), func(t *testing.T) {
 
-			quote, err := SelectQuote(db, uname0)
+			quote, err := c.SelectQuote(uname0)
 			assert.Equal(t, te.expectedErr, err)
 			assert.Equal(t, te.expectedQuote, quote)
 		})

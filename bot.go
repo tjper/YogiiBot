@@ -2,17 +2,13 @@ package main
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
-	"html"
+	"github.com/penutty/YogiiBot/commands"
 	"io/ioutil"
-	"math/rand"
 	"net"
-	"net/http"
 	"net/textproto"
 	"os"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -24,49 +20,15 @@ type Bot struct {
 	conn       net.Conn
 	lastmsg    int64
 	maxMsgTime int64
-
-	lastMsg   map[int]time.Time
-	duel      map[string][]Vote
-	duelOpen  bool
-	duelStart time.Time
-	votees    map[int]bool
-
-	yogihashs map[string]bool
-
-	bet *betRound
-
-	triviaquestion TriviaQuestion
-
-	duoqueue []*User
-	duoopen  bool
-
-	dba *DatabaseAccess
-}
-
-type Vote struct {
-	userID int
-	dt     time.Time
-}
-
-type TriviaQuestion struct {
-	Question         string
-	Answer           string
-	IncorrectAnswers []string
 }
 
 func NewBot() *Bot {
 	return &Bot{
-		server:    "irc.twitch.tv",
-		port:      "6667",
-		nick:      "YogiiBot", //Change to your Twitch username
-		channel:   "penutty",  //Change to your channel
-		conn:      nil,        //Don't change this
-		lastMsg:   make(map[int]time.Time),
-		duel:      make(map[string][]Vote),
-		votees:    make(map[int]bool),
-		yogihashs: make(map[string]bool),
-		duoqueue:  make([]*User, 0),
-		duoopen:   false,
+		server:  "irc.twitch.tv",
+		port:    "6667",
+		nick:    "YogiiBot", //Change to your Twitch username
+		channel: "penutty",  //Change to your channel
+		conn:    nil,        //Don't change this
 	}
 }
 
@@ -109,76 +71,6 @@ func (bot *Bot) ConsoleInput() {
 	}
 }
 
-func (bot *Bot) TriviaQuestion() {
-	var wg sync.WaitGroup
-	for {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			n := (rand.Int() % 20) + 10
-			time.Sleep(time.Duration(n) * time.Minute)
-			r, err := http.Get("https://opentdb.com/api.php?amount=1&category=15&type=multiple")
-			if err != nil {
-				fmt.Printf("TriviaQuestion - Error: %s\n", err)
-				return
-			}
-
-			type result struct {
-				Category          string
-				Type              string
-				Difficulty        string
-				Incorrect_Answers []string
-				Question          string
-				Correct_Answer    string
-			}
-			type body struct {
-				Response_code int
-				Results       []result
-			}
-
-			b := new(body)
-			if err = json.NewDecoder(r.Body).Decode(b); err != nil {
-				fmt.Printf("TriviaQuestion - Error: %s\n", err)
-				return
-			}
-			bot.triviaquestion = TriviaQuestion{
-				Question: html.UnescapeString(b.Results[0].Question),
-				Answer:   html.UnescapeString(b.Results[0].Correct_Answer),
-			}
-			for _, a := range b.Results[0].Incorrect_Answers {
-				bot.triviaquestion.IncorrectAnswers = append(bot.triviaquestion.IncorrectAnswers, html.UnescapeString(a))
-			}
-		}()
-		wg.Wait()
-	}
-}
-
-func (bot *Bot) WildYogi() {
-	var wg sync.WaitGroup
-	for {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			n := rand.Int() % 150
-			time.Sleep(time.Duration(n) * time.Minute)
-			r := RandomString(5)
-			bot.yogihashs[r] = false
-			bot.Message(fmt.Sprintf("A wild yogi has appeared! Who will catch him first? Type !findyogi %s", r))
-		}()
-		wg.Wait()
-	}
-}
-
-const letterBytes = "abcdefghijklmnopqrstuvwxyz"
-
-func RandomString(n int) string {
-	b := make([]byte, n)
-	for i := range b {
-		b[i] = letterBytes[rand.Intn(len(letterBytes))]
-	}
-	return string(b)
-}
-
 func main() {
 	channel := "penutty"
 	nick := "yogiibot"
@@ -194,22 +86,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	//Prep everything
 	if !ircbot.readSettingsDB(channel) {
 		ircbot.nick = nick
 		ircbot.channel = "#" + channel
 		ircbot.writeSettingsDB()
 	}
-	ircbot.dba, err = NewDatabaseAccess()
-	if err != nil {
-		return
-	}
 
-	defer ircbot.dba.CloseNuttyDB()
-	go ircbot.WildYogi()
-	go ircbot.TriviaQuestion()
-
-	//
 	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/commands\n")
 	fmt.Fprintf(ircbot.conn, "CAP REQ :twitch.tv/tags\n")
 	fmt.Fprintf(ircbot.conn, "USER %s 8 * :%s\r\n", ircbot.nick, ircbot.nick)
@@ -235,11 +117,11 @@ func main() {
 			fmt.Fprintf(ircbot.conn, "PONG %s\r\n", pongdata[1])
 		} else if strings.Contains(line, ".tmi.twitch.tv PRIVMSG "+ircbot.channel) {
 
-			command, err := NewCommand(ircbot, line)
+			command, err := commands.NewCommand(ircbot, line)
 			if err != nil {
 				continue
 			}
-			go command.Exec(ircbot)
+			go command.Exec()
 		}
 	}
 }

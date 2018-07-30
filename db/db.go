@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	loginfo *log.Logger
-	logerr  *log.Logger
+	loginfo  *log.Logger
+	logerror *log.Logger
 )
 
 func init() {
@@ -32,14 +32,30 @@ func init() {
 	logerror = Logger("error")
 }
 
+type Clienter interface {
+	UserNameExists(string) (bool, error)
+	UserIDExists(int) (bool, error)
+	CreateUser(string, int) error
+	UpdateUserName(int, string) error
+	ReferenceExists(int) (bool, error)
+	CreateReference(int, int) error
+	AddNuts(int, float64) error
+	RemoveNuts(int, float64) error
+	SelectNuts(int) (float64, error)
+	SelectTopUsersByNuts() ([]UsersRow, error)
+	SelectUserID(string) (int, error)
+	SelectUserName(int) (string, error)
+	InsertRedeem(int, int, float64) error
+	SelectSubStatus(int) (bool, error)
+	UpdateSubStatus(int) error
+	UpdateQuote(int, string) error
+	SelectQuote(string) (string, error)
+}
+
 type DbRunner interface {
 	QueryRow(string, ...interface{}) *sql.Row
 	Query(string, ...interface{}) (*sql.Rows, error)
 	Exec(string, ...interface{}) (sql.Result, error)
-}
-
-type DatabaseAccess struct {
-	dbconn *sql.DB
 }
 
 type UsersRow struct {
@@ -48,11 +64,16 @@ type UsersRow struct {
 	Nuts     float64
 }
 
-func NewDatabaseAccess() (*DatabaseAccess, error) {
-	server := "nuttydb.database.windows.net"
+type Client struct {
+	db DbRunner
+}
+
+func NewClient() (*Client, error) {
+
+	server := "an Microsoft Azure Db server"
 	port := "1433"
 	username := "yogiibot"
-	pass := "tIrjONIN4gtKRaJ5SHtN"
+	pass := "fakepass"
 	database := "NuttyDB"
 
 	connstr := fmt.Sprintf("server=%s;user id=%s;password=%s;port=%s;database=%s", server, username, pass, port, database)
@@ -62,16 +83,12 @@ func NewDatabaseAccess() (*DatabaseAccess, error) {
 		logerror.Println(err)
 		return nil, err
 	}
-	dba := new(DatabaseAccess)
-	dba.dbconn = db
-	return dba, nil
+	c := new(Client)
+	c.db = db
+	return c, nil
 }
 
-func CloseDatabaseAccess(dba *DatabaseAccess) {
-	dba.dbconn.Close()
-}
-
-func UserNameExists(db DbRunner, name string) (ok bool, err error) {
+func (c *Client) UserNameExists(name string) (ok bool, err error) {
 	query := `SELECT CASE
 			  WHEN [UserName] IS NOT NULL THEN 1
 			  ELSE 0
@@ -80,14 +97,14 @@ func UserNameExists(db DbRunner, name string) (ok bool, err error) {
 		  WHERE [UserName] = ?`
 	args := []interface{}{name}
 
-	if err := db.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
+	if err = c.db.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
 		logerror.Println(err)
 		return
 	}
 	return
 }
 
-func UserIDExists(db DbRunner, userID int) (ok bool, err error) {
+func (c *Client) UserIDExists(userID int) (ok bool, err error) {
 	query := `SELECT CASE
 			  WHEN [UserID] IS NOT NULL THEN 1
 			  ELSE 0
@@ -96,7 +113,7 @@ func UserIDExists(db DbRunner, userID int) (ok bool, err error) {
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
 
-	if err := db.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
+	if err = c.db.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
 		logerror.Println(err)
 		return
 	}
@@ -105,13 +122,13 @@ func UserIDExists(db DbRunner, userID int) (ok bool, err error) {
 
 var ErrorNotOneRowAffected = errors.New("sql.Result indicates 0 rows affected by query.")
 
-func CreateUser(db DbRunner, name string, userID int) (err error) {
+func (c *Client) CreateUser(name string, userID int) (err error) {
 	query := `INSERT INTO [info].[Users] ([Username], [UserID])
 		  VALUES(?, ?)`
 	args := []interface{}{name, userID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -128,14 +145,14 @@ func CreateUser(db DbRunner, name string, userID int) (err error) {
 	return
 }
 
-func UpdateUserName(db DbRunner, userID int, userName string) (err error) {
+func (c *Client) UpdateUserName(userID int, userName string) (err error) {
 	query := `UPDATE [info].[Users]
 		  SET [UserName] = ?
 		  WHERE [UserID] = ?`
 	args := []interface{}{userName, userID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -152,7 +169,7 @@ func UpdateUserName(db DbRunner, userID int, userName string) (err error) {
 	return
 }
 
-func ReferenceExists(db DbRunner, userID int) (ok bool, err error) {
+func (c *Client) ReferenceExists(userID int) (ok bool, err error) {
 	query := `SELECT CASE
 			  WHEN [UserID] IS NOT NULL THEN 1
 			  ELSE 0
@@ -160,20 +177,20 @@ func ReferenceExists(db DbRunner, userID int) (ok bool, err error) {
 		  FROM [info].[References]
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
-	if err := db.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
+	if err = c.db.QueryRow(query, args...).Scan(&ok); err != nil && err != sql.ErrNoRows {
 		logerror.Println(err)
 		return
 	}
 	return
 }
 
-func CreateReference(db DbRunner, userID, referencedByUserID int) (err error) {
+func (c *Client) CreateReference(userID, referencedByUserID int) (err error) {
 	query := `INSERT INTO [info].[References] ([UserID], [ReferencedByUserID])
 		  VALUES(?, ?)`
 	args := []interface{}{userID, referencedByUserID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -190,14 +207,14 @@ func CreateReference(db DbRunner, userID, referencedByUserID int) (err error) {
 	return
 }
 
-func AddNuts(db DbRunner, userID int, cnt float64) (err error) {
+func (c *Client) AddNuts(userID int, cnt float64) (err error) {
 	query := `UPDATE [info].[Users]
 		  SET Nuts = Nuts + ?
 		  WHERE [UserID] = ?`
 	args := []interface{}{cnt, userID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -214,14 +231,14 @@ func AddNuts(db DbRunner, userID int, cnt float64) (err error) {
 	return
 }
 
-func RemoveNuts(db DbRunner, userID int, cnt float64) (err error) {
+func (c *Client) RemoveNuts(userID int, cnt float64) (err error) {
 	query := `UPDATE [info].[Users]
 		  SET Nuts = Nuts - ?
 		  WHERE [UserID] = ?`
 	args := []interface{}{cnt, userID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -239,25 +256,25 @@ func RemoveNuts(db DbRunner, userID int, cnt float64) (err error) {
 
 }
 
-func SelectNuts(db DbRunner, userID int) (nuts float64, err error) {
+func (c *Client) SelectNuts(userID int) (nuts float64, err error) {
 	query := `SELECT Nuts
 		  FROM [info].[Users]
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
-	if err = db.QueryRow(query, args...).Scan(&nuts); err != nil {
+	if err = c.db.QueryRow(query, args...).Scan(&nuts); err != nil {
 		logerror.Println(err)
 		return
 	}
 	return
 }
 
-func SelectTopUsersByNuts(db DbRunner) (set []UsersRow, err error) {
+func (c *Client) SelectTopUsersByNuts() (set []UsersRow, err error) {
 	query := `SELECT TOP 5 [UserName], [Nuts]
 		  FROM [info].[Users]
 		  WHERE [UserName] NOT IN(?,?)
 		  ORDER BY [Nuts] DESC`
 	args := []interface{}{"penutty_", ""}
-	rows, err := db.Query(query, args...)
+	rows, err := c.db.Query(query, args...)
 	if err != nil {
 		logerror.Println(err)
 		return
@@ -282,37 +299,37 @@ func SelectTopUsersByNuts(db DbRunner) (set []UsersRow, err error) {
 	return
 }
 
-func SelectUserID(db DbRunner, username string) (userID int, err error) {
+func (c *Client) SelectUserID(username string) (userID int, err error) {
 	query := `SELECT [UserID]
 		  FROM [info].[Users]
 		  WHERE [UserName] = ?`
 	args := []interface{}{username}
-	if err = db.QueryRow(query, args...).Scan(&userID); err != nil && err != sql.ErrNoRows {
+	if err = c.db.QueryRow(query, args...).Scan(&userID); err != nil && err != sql.ErrNoRows {
 		logerror.Println(err)
 		return
 	}
 	return
 }
 
-func SelectUserName(db DbRunner, userID int) (username string, err error) {
+func (c *Client) SelectUserName(userID int) (username string, err error) {
 	query := `SELECT [UserName]
 		  FROM [info].[Users]
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
-	if err = db.QueryRow(query, args...).Scan(&username); err != nil && err != sql.ErrNoRows {
+	if err = c.db.QueryRow(query, args...).Scan(&username); err != nil && err != sql.ErrNoRows {
 		logerror.Println(err)
 		return
 	}
 	return
 }
 
-func InsertRedeem(db DbRunner, userID int, itemID int, cost float64) (err error) {
+func (c *Client) InsertRedeem(userID int, itemID int, cost float64) (err error) {
 	query := `INSERT INTO [info].[Redems] ([UserID], [NutCost], [ItemID])
 		  VALUES ( ?, ?, ?)`
 	args := []interface{}{userID, cost, itemID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -329,26 +346,26 @@ func InsertRedeem(db DbRunner, userID int, itemID int, cost float64) (err error)
 	return
 }
 
-func SelectSubStatus(db DbRunner, userID int) (status bool, err error) {
+func (c *Client) SelectSubStatus(userID int) (status bool, err error) {
 	query := `SELECT [HasSubbed]
 		  FROM [info].[Users]
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
-	if err = db.QueryRow(query, args...).Scan(&status); err != nil {
+	if err = c.db.QueryRow(query, args...).Scan(&status); err != nil {
 		logerror.Println(err)
 		return
 	}
 	return
 }
 
-func UpdateSubStatus(db DbRunner, userID int) (err error) {
+func (c *Client) UpdateSubStatus(userID int) (err error) {
 	query := `UPDATE [info].[Users]
 		  SET [HasSubbed] = 1
 		  WHERE [UserID] = ?`
 	args := []interface{}{userID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -365,14 +382,14 @@ func UpdateSubStatus(db DbRunner, userID int) (err error) {
 	return
 }
 
-func UpdateQuote(db DbRunner, userID int, quote string) (err error) {
+func (c *Client) UpdateQuote(userID int, quote string) (err error) {
 	query := `UPDATE [info].[Users]
 		  SET [Quote] = ?
 		  WHERE [UserID] = ?`
 	args := []interface{}{quote, userID}
 
 	var res sql.Result
-	if res, err = db.Exec(query, args...); err != nil {
+	if res, err = c.db.Exec(query, args...); err != nil {
 		logerror.Println(err)
 		return
 	}
@@ -389,12 +406,12 @@ func UpdateQuote(db DbRunner, userID int, quote string) (err error) {
 	return
 }
 
-func SelectQuote(db DbRunner, userName string) (quote string, err error) {
+func (c *Client) SelectQuote(userName string) (quote string, err error) {
 	query := `SELECT [Quote]
 		  FROM [info].[Users]
 		  WHERE [UserName] = ?`
 	args := []interface{}{userName}
-	if err = db.QueryRow(query, args...).Scan(&quote); err != nil {
+	if err = c.db.QueryRow(query, args...).Scan(&quote); err != nil {
 		logerror.Println(err)
 		return
 	}

@@ -1,35 +1,53 @@
-package command
+package commands
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	yogiDB "github.com/penutty/YogiiBot/db"
+	"html"
+	"io"
+	"log"
+	"math/rand"
+	"net/http"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
-type Command struct {
-	Author  *User
-	Message string
-}
+var (
+	loginfo  *log.Logger
+	logerror *log.Logger
 
-func NewCommand(bot *Bot, line string) (*Command, error) {
-	m, err := lineToMap(line)
-	if err != nil {
-		return nil, err
+	yogiDBClient yogiDB.Clienter
+)
+
+func init() {
+	Logger := func(logType string) *log.Logger {
+		file := "/home/james/go/log/yogiibot_commands.txt"
+		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(err)
+		}
+
+		l := log.New(f, strings.ToUpper(logType)+": ", log.Ldate|log.Ltime|log.Lmicroseconds|log.LUTC|log.Lshortfile)
+		return l
 	}
 
-	command := new(Command)
-	command.Author, err = NewUser(bot, m)
-	if err != nil {
-		return nil, err
-	}
-	message := strings.Split(line, fmt.Sprintf("PRIVMSG %s :", bot.channel))
-	command.Message = message[1]
+	loginfo = Logger("info")
+	logerror = Logger("error")
+	loginfo.Println("In init()")
 
-	return command, nil
+	var err error
+	yogiDBClient, err = yogiDB.NewClient()
+	if err != nil {
+		logerror.Println(err)
+		panic(err)
+	}
 }
 
 type User struct {
@@ -40,15 +58,11 @@ type User struct {
 	IsBroadcaster bool
 }
 
-var ErrorInvalidIdentifiers = errors.New("Invalid user identifiers.")
-
-func NewUser(bot *Bot, m map[string]string) (u *User, err error) {
-
-	fmt.Printf("\n\n%v\n\n", m)
+func NewUser(m map[string]string) (u *User, err error) {
 	u = new(User)
 	tuserID, ok := m["user-id"]
 	if !ok {
-		return u, ErrorInvalidIdentifiers
+		return u, ErrInvalidIdentifiers
 	}
 	u.Id, err = strconv.Atoi(tuserID)
 	if err != nil {
@@ -57,7 +71,7 @@ func NewUser(bot *Bot, m map[string]string) (u *User, err error) {
 
 	u.Name, ok = m["display-name"]
 	if !ok {
-		return u, ErrorInvalidIdentifiers
+		return u, ErrInvalidIdentifiers
 	}
 
 	u.IsSubscriber = false
@@ -75,17 +89,20 @@ func NewUser(bot *Bot, m map[string]string) (u *User, err error) {
 	}
 
 	if u.IsSubscriber {
-		registered, err := bot.dba.SelectSubStatus(u.Id)
+		registered, err := yogiDBClient.SelectSubStatus(u.Id)
 		if err != nil {
+			logerror.Println(err)
 			return u, err
 		}
 		if registered {
 			return u, nil
 		}
-		if err := bot.dba.UpdateSubStatus(u.Id); err != nil {
+		if err := yogiDBClient.UpdateSubStatus(u.Id); err != nil {
+			logerror.Println(err)
 			return u, err
 		}
-		if err := bot.dba.AddNuts(u.Id, 1.0); err != nil {
+		if err := yogiDBClient.AddNuts(u.Id, 1.0); err != nil {
+			logerror.Println(err)
 			return u, err
 		}
 	}
@@ -93,9 +110,34 @@ func NewUser(bot *Bot, m map[string]string) (u *User, err error) {
 	return u, nil
 }
 
+type Command struct {
+	Author   *User
+	Message  string
+	Response string
+	Error    error
+}
+
+func NewCommand(line string, channel string) (*Command, error) {
+	m, err := lineToMap(line)
+	if err != nil {
+		logerror.Println(err)
+		return nil, err
+	}
+
+	command := new(Command)
+	command.Author, err = NewUser(m)
+	if err != nil {
+		logerror.Println(err)
+		return nil, err
+	}
+	message := strings.Split(line, fmt.Sprintf("PRIVMSG %s :", channel))
+	command.Message = message[1]
+
+	return command, nil
+}
+
 var (
 	nutsRE     = regexp.MustCompile(`^(!nuts)$`)
-	pointsRE   = regexp.MustCompile(`^(!points)$`)
 	thanksRE   = regexp.MustCompile(`^(\!thanks)(\s){1}([a-zA-Z0-9_]){4,25}$`)
 	getnuttyRE = regexp.MustCompile(`^(\!getnutty)$`)
 
@@ -125,86 +167,89 @@ var (
 	redeemvbucksRE = regexp.MustCompile(`^(\!redeem)(\s){1}(vbucks)$`)
 )
 
-func (c *Command) Exec(bot *Bot) {
-	if !isNutty(bot, c.Author) {
-		getNutty(bot, c.Author)
+func (c *Command) Exec() (string, error) {
+	nutty, err := isNutty(c.Author)
+	if err != nil {
+		return "", err
+	}
+	if !nutty {
+		getNutty(c.Author)
 	}
 
+	var msg string
 	switch {
 	case winRE.MatchString(c.Message):
-		win(bot, c.Author, c.Message)
+		msg, err = win(c.Author, c.Message)
 	case loseRE.MatchString(c.Message):
-		lose(bot, c.Author, c.Message)
+		msg, err = lose(c.Author, c.Message)
 	case fortniteBetRE.MatchString(c.Message):
-		fortniteBet(bot, c.Author)
+		msg, err = fortniteBet(c.Author)
 	case fortniteEndBetRE.MatchString(c.Message):
-		fortniteEndBet(bot, c.Author)
+		msg, err = fortniteEndBet(c.Author)
 	case fortniteCancelBetRE.MatchString(c.Message):
-		fortniteCancelBet(bot, c.Author)
+		msg, err = fortniteCancelBet(c.Author)
 	case fortniteResolveBetRE.MatchString(c.Message):
-		fortniteResolveBet(bot, c.Author, c.Message)
-	case pointsRE.MatchString(c.Message):
-		points(bot, c.Author)
+		msg, err = fortniteResolveBet(c.Author, c.Message)
 	case nutsRE.MatchString(c.Message):
-		nuts(bot, c.Author)
+		msg, err = nuts(c.Author)
 	case thanksRE.MatchString(c.Message):
-		thanks(bot, c.Author, c.Message)
+		msg, err = thanks(c.Author, c.Message)
 	case findYogiRE.MatchString(c.Message):
-		findYogi(bot, c.Author, c.Message)
+		msg, err = findYogi(c.Author, c.Message)
 	case leaderboardRE.MatchString(c.Message):
-		leaderBoard(bot, c.Author)
+		msg, err = leaderBoard(c.Author)
 	case redeemduoRE.MatchString(c.Message):
-		redeemDuo(bot, c.Author)
+		msg, err = redeemDuo(c.Author)
 	case duoqueueRE.MatchString(c.Message):
-		duoQueue(bot)
+		msg = duoQueue()
 	case duoremoveRE.MatchString(c.Message):
-		duoRemove(bot, c.Author)
+		err = duoRemove(c.Author)
 	case duochargeRE.MatchString(c.Message):
-		duoCharge(bot, c.Author)
+		msg, err = duoCharge(c.Author)
 	case duoopenRE.MatchString(c.Message):
-		duoOpen(bot, c.Author)
+		msg, err = duoOpen(c.Author)
 	case duocloseRE.MatchString(c.Message):
-		duoClose(bot, c.Author)
+		msg, err = duoClose(c.Author)
 	case redeemvbucksRE.MatchString(c.Message):
-		redeemVBucks(bot, c.Author)
+		msg, err = redeemVBucks(c.Author)
 	case quoteRE.MatchString(c.Message):
-		quote(bot, c.Author, c.Message)
+		err = quote(c.Author, c.Message)
 	case getQuoteRE.MatchString(c.Message):
-		getQuote(bot, c.Author, c.Message)
+		msg, err = getQuote(c.Author, c.Message)
 	default:
-		dne(bot, c.Author)
+		err = dne(c.Author)
 	}
+	return msg, err
 }
 
-func getQuote(in dba.Selecter, bot *Bot, u *User, message string) {
+func getQuote(u *User, message string) (string, error) {
 	message = strings.ToLower(message)
 	a := strings.Split(message, "!")
 	author := a[1]
 
-	quote, err := in.SelectQuote(author)
+	quote, err := yogiDBClient.SelectQuote(author)
 	if err != nil {
-		fmt.Printf("Error - GetQuote: %s\n", err)
-		return
+		logerror.Println(err)
+		return "", err
 	}
 
-	bot.Message(fmt.Sprintf("\" %s \" - %s", quote, author))
-	return
+	return fmt.Sprintf("\" %s \" - %s", quote, author), nil
 }
 
-func quote(in dba.Updater, u *User, message string) {
+func quote(u *User, message string) error {
 	if !u.IsSubscriber {
-		return
+		return nil
 	}
 
 	a := strings.Split(message, "!quote ")
 	quote := a[1]
 	quote = strings.Trim(quote, "\"")
 
-	if err := in.UpdateQuote(u.Id, quote); err != nil {
-		fmt.Printf("Error - Quote: %s\n", err)
-		return
+	if err := yogiDBClient.UpdateQuote(u.Id, quote); err != nil {
+		logerror.Println(err)
+		return err
 	}
-	return
+	return nil
 }
 
 var (
@@ -213,256 +258,236 @@ var (
 	DuoQueueLimit = 3
 )
 
-func redeemDuo(in dba.Selecter, bot *Bot, u *User) {
-	if !bot.duoopen {
-		return
+var (
+	duoopen  bool
+	duoqueue []*User
+)
+
+func redeemDuo(u *User) (string, error) {
+	if !duoopen {
+		return "", nil
 	}
-	if len(bot.duoqueue) >= DuoQueueLimit {
-		fmt.Print("DuoQueueLimit Reached.")
-		return
+	if len(duoqueue) >= DuoQueueLimit {
+		return "", nil
 	}
-	for _, r := range bot.duoqueue {
+	for _, r := range duoqueue {
 		if r.Name == u.Name {
-			return
+			return "", nil
 		}
 	}
 
-	nuts, err := in.SelectNuts(u.Id)
+	nuts, err := yogiDBClient.SelectNuts(u.Id)
 	if err != nil {
-		return
+		logerror.Println(err)
+		return "", err
 	}
 	if nuts < DuoCost {
-		return
+		return "", nil
 	}
-	bot.Message(fmt.Sprintf("@%s has redeemed DUOS!", u.Name))
-	bot.duoqueue = append(bot.duoqueue, u)
+	duoqueue = append(duoqueue, u)
+
+	return fmt.Sprintf("@%s has joined duos queue!", u.Name), nil
 }
 
-func duoCharge(in dba.Redeemer, bot *Bot, u *User) {
+func duoCharge(u *User) (string, error) {
 	if !u.IsMod && !u.IsBroadcaster {
-		return
+		return "", nil
 	}
-	if len(bot.duoqueue) <= 0 {
-		fmt.Println("DuoQueue Empty")
-		return
+	if len(duoqueue) <= 0 {
+		return "", nil
 	}
 
-	r := bot.duoqueue[0]
+	r := duoqueue[0]
 
-	if err := in.InsertRedeem(r.Id, TypeDuo, DuoCost); err != nil {
-		return
+	if err := yogiDBClient.InsertRedeem(r.Id, TypeDuo, DuoCost); err != nil {
+		logerror.Println(err)
+		return "", err
 	}
-	if err := in.RemoveNuts(r.Id, DuoCost); err != nil {
-		fmt.Printf("RemoveNuts - Error: %s\n", err)
-		return
+	if err := yogiDBClient.RemoveNuts(r.Id, DuoCost); err != nil {
+		logerror.Println(err)
+		return "", err
 	}
-	bot.Message(fmt.Sprintf("@%s has been charged for DUOS!", r.Name))
-	bot.duoqueue = bot.duoqueue[1:]
+
+	duoqueue = duoqueue[1:]
+	return fmt.Sprintf("@%s has been charged for DUOS!", r.Name), nil
 }
 
-func duoRemove(bot *Bot, u *User) {
+func duoRemove(u *User) error {
 	if !u.IsMod && !u.IsBroadcaster {
-		return
+		return nil
 	}
-	if len(bot.duoqueue) <= 0 {
-		fmt.Println("DuoQueue Empty")
-		return
+	if len(duoqueue) <= 0 {
+		return nil
 	}
-	bot.duoqueue = bot.duoqueue[1:]
+	duoqueue = duoqueue[1:]
+	return nil
 }
 
-func duoQueue(bot *Bot) {
+func duoQueue() string {
 	var msg string
-	for i, u := range bot.duoqueue {
+	for i, u := range duoqueue {
 		msg = msg + fmt.Sprintf("%v. %s   ", i+1, u.Name)
 	}
-	bot.Message(msg)
+	return msg
 }
 
-func duoOpen(bot *Bot, u *User) {
+func duoOpen(u *User) (string, error) {
 	if !u.IsMod && !u.IsBroadcaster {
-		return
+		return "", nil
 	}
-	bot.duoopen = true
-	bot.Message(fmt.Sprintf("DUOS is now open! type \"!redeem duo\" to play with penutty."))
+	duoopen = true
+	return fmt.Sprintf("DUOS is now open! type \"!redeem duo\" to play with penutty."), nil
 }
 
-func duoClose(bot *Bot, u *User) {
+func duoClose(u *User) (string, error) {
 	if !u.IsMod && !u.IsBroadcaster {
-		return
+		return "", nil
 	}
-	bot.duoopen = false
-	bot.Message(fmt.Sprintf("DUOS is now closed."))
+	duoopen = false
+	duoqueue = make([]*User, 0)
+	return fmt.Sprintf("DUOS is now closed."), nil
 }
 
-func redeemVBucks(in dba.SelectRedeemer, bot *Bot, u *User) {
+func redeemVBucks(u *User) (string, error) {
 	cost := 8.00
 	vbucks := 2
-	nuts, err := in.SelectNuts(u.Id)
+	nuts, err := yogiDBClient.SelectNuts(u.Id)
 	if err != nil {
-		fmt.Printf("SelectNuts - Error: %s\n", err)
-		return
+		logerror.Println(err)
+		return "", err
 	}
 	if nuts < cost {
-		return
+		return "", nil
 	}
-	if err := in.InsertRedeem(u.Id, vbucks, cost); err != nil {
-		return
+	if err := yogiDBClient.InsertRedeem(u.Id, vbucks, cost); err != nil {
+		logerror.Println(err)
+		return "", err
 	}
-	if err := in.RemoveNuts(u.Id, cost); err != nil {
-		fmt.Printf("RemoveNuts - Error: %s\n", err)
-		return
+	if err := yogiDBClient.RemoveNuts(u.Id, cost); err != nil {
+		logerror.Println(err)
+		return "", err
 	}
-	bot.Message(fmt.Sprintf("@%s has redeemed VBUCKS!", u.Name))
+	return fmt.Sprintf("@%s has redeemed 1000 VBUCKS!", u.Name), nil
 }
 
-func leaderBoard(in dba.TopSelecter, bot *Bot, u *User) {
-
-	set, err := in.SelectTopUsersByNuts()
+func leaderBoard(u *User) (string, error) {
+	set, err := yogiDBClient.SelectTopUsersByNuts()
 	if err != nil {
-		fmt.Printf("Error - LeaderBoard: %s", err)
-		return
+		logerror.Println(err)
+		return "", err
 	}
 
 	var res string
 	for i, row := range set {
 		res = res + fmt.Sprintf("(%v) %s = %v nuts ... ", i+1, row.UserName, row.Nuts)
 	}
-	bot.Message(res)
+	return res, nil
 }
 
-func trivia(in dba.Adder, bot *Bot, u *User, message string) {
-	if bot.triviaquestion.Question == "" {
-		return
-	}
-
-	a := strings.Split(message, "!trivia ")
-	answer := a[1]
-	if strings.ToLower(bot.triviaquestion.Answer) != answer {
-		return
-	}
-
-	reward := 10.0
-	if err := in.AddNuts(u.Id, reward); err != nil {
-		fmt.Printf("Trivia - Error: %s\n", err)
-		return
-	}
-	bot.Message(fmt.Sprintf("@%s has answered the trivia question correctly! You've been rewarded %v nuts!", u.Name, reward))
-	bot.triviaquestion = TriviaQuestion{}
-}
-
-func nuts(in dba.Selecter, bot *Bot, u *User) {
-	nuts, err := in.SelectNuts(u.Id)
+func nuts(u *User) (string, error) {
+	nuts, err := yogiDBClient.SelectNuts(u.Id)
 	if err != nil {
-		return
+		logerror.Println(err)
+		return "", err
 	}
-	bot.Message(fmt.Sprintf("@%s - Nuts = %v", u.Name, nuts))
+	return fmt.Sprintf("@%s - Nuts = %v", u.Name, nuts), nil
 }
 
-func thanks(in dba.Thanker, bot *Bot, u *User, message string) {
+func thanks(u *User, message string) (string, error) {
 	message = strings.ToLower(message)
 	a := strings.Split(message, "!thanks ")
 	referencedByUserName := a[1]
 
-	referencedByUserID, err := in.SelectUserID(referencedByUserName)
+	referencedByUserID, err := yogiDBClient.SelectUserID(referencedByUserName)
 	if err != nil && err != sql.ErrNoRows {
-		return
+		logerror.Println(err)
+		return "", err
 	}
 
-	nuts, err := in.SelectNuts(u.Id)
+	nuts, err := yogiDBClient.SelectNuts(u.Id)
 	if err != nil {
-		return
+		logerror.Println(err)
+		return "", err
 	}
 
+	nutty, err := isNutty(&User{Id: referencedByUserID, Name: referencedByUserName})
+	if err != nil {
+		logerror.Println(err)
+		return "", err
+	}
 	switch {
 	case nuts < 0.5:
-		return
-	case !u.IsSubscriber:
-		return
+		return "", nil
 	case u.Id == referencedByUserID:
-		fmt.Printf("\n%s- attempted to thank themself.", u.Name)
-		return
-	case !isNutty(bot, &User{Id: referencedByUserID, Name: referencedByUserName}):
-		fmt.Printf("\n%s - attempted to thank someone who hasn't ran !getnutty.", u.Name, referencedByUserName)
-		return
+		return "", nil
+	case !nutty:
+		return "", nil
 	}
 
-	ok, err := in.ReferenceExists(u.Id)
+	ok, err := yogiDBClient.ReferenceExists(u.Id)
 	switch {
 	case err != nil && err != sql.ErrNoRows:
-		return
+		logerror.Println(err)
+		return "", err
 	case ok:
-		fmt.Printf("@%s you already thanked another user!", u.Name, referencedByUserName)
-		return
+		return "", nil
 	}
 
-	if err := in.CreateReference(u.Id, referencedByUserID); err != nil && err != sql.ErrNoRows {
-		return
+	if err := yogiDBClient.CreateReference(u.Id, referencedByUserID); err != nil && err != sql.ErrNoRows {
+		logerror.Println(err)
+		return "", err
 	}
 	reward := 0.25
-	if err := in.AddNuts(referencedByUserID, reward); err != nil {
-		return
+	if err := yogiDBClient.AddNuts(referencedByUserID, reward); err != nil {
+		logerror.Println(err)
+		return "", err
 	}
 
-	bot.Message(fmt.Sprintf("Thanks @%s, for recommending penutty_ to @%s! You've earned %v nut!", referencedByUserName, u.Name, reward))
-
+	return fmt.Sprintf("Thanks @%s, for recommending penutty_ to @%s! You've earned %v nut!", referencedByUserName, u.Name, reward), nil
 }
 
-func getNutty(in dba.CreateUserer, bot *Bot, u *User) {
-	if err := in.CreateUser(u.Name, u.Id); err != nil {
-		return
+func getNutty(u *User) error {
+	if err := yogiDBClient.CreateUser(u.Name, u.Id); err != nil {
+		logerror.Println(err)
+		return err
 	}
-	bot.Message(fmt.Sprintf("/w %s Rufffff! Welcome to penutty's channel %s! type !how in the channel chat to see how to earn !nuts. Nuts can be redeemed for VBUCKS, playing duos with penutty, and more!", u.Name, u.Name))
+	return nil
 }
 
-func findYogi(in dba.Adder, bot *Bot, u *User, message string) {
-	message = strings.ToLower(message)
-	a := strings.Split(message, "!findyogi ")
-	hash := a[1]
+var msgs = make(map[int]time.Time)
 
-	found, ok := bot.yogihashs[hash]
-	if found || !ok {
-		return
-	}
-
-	bot.yogihashs[hash] = true
-	reward := 0.1
-	if err := in.AddNuts(u.Id, reward); err != nil {
-		fmt.Errorf("Error: %s\n", err)
-		return
-	}
-	bot.Message(fmt.Sprintf("@%s found Yogi!!! You've been rewarded %v chat points.", u.Name, reward))
-}
-
-func dne(in dba.Adder, bot *Bot, u *User) {
-	lastMsg, ok := bot.lastMsg[u.Id]
+func dne(u *User) error {
+	lastMsg, ok := msgs[u.Id]
 	if ok && time.Since(lastMsg) <= 10*time.Minute {
-		return
+		return nil
 	}
 
 	reward := 0.005
-	if err := in.AddNuts(u.Id, reward); err != nil {
-		return
+	if err := yogiDBClient.AddNuts(u.Id, reward); err != nil {
+		logerror.Println(err)
+		return err
 	}
-
-	bot.lastMsg[u.Id] = time.Now()
+	msgs[u.Id] = time.Now()
+	return nil
 }
 
-func isNutty(in dba.UserNameSelectUpdater, bot *Bot, u *User) bool {
-	userName, err := in.SelectUserName(u.Id)
+func isNutty(u *User) (bool, error) {
+	userName, err := yogiDBClient.SelectUserName(u.Id)
 	if err == sql.ErrNoRows {
-		return false
+		return false, nil
 	}
 	if err != nil {
-		fmt.Printf("\nis Nutty - Error: %s", err)
+		logerror.Println(err)
+		return false, err
 	}
 	if userName == u.Name {
-		return true
+		return true, nil
 	}
-	if err = in.UpdateUserName(u.Id, u.Name); err != nil {
-		fmt.Printf("\nisNutty - update: %s", err)
+	if err = yogiDBClient.UpdateUserName(u.Id, u.Name); err != nil {
+		logerror.Println(err)
+		return true, err
 	}
-	return true
+	return true, nil
 }
 
 type betRound struct {
@@ -475,18 +500,9 @@ type betRound struct {
 	winBets       []*bet
 }
 
-type bet struct {
-	userID int
-	amount float64
-}
-
-func fortniteBet(bot *Bot, u *User) {
-	if !u.IsMod && !u.IsBroadcaster {
-		return
-	}
-
-	br := &betRound{
-		open:          true,
+func NewBetRound(open bool) *betRound {
+	return &betRound{
+		open:          open,
 		startTime:     time.Now(),
 		betees:        make(map[int]bool),
 		totalWinBets:  0,
@@ -494,30 +510,44 @@ func fortniteBet(bot *Bot, u *User) {
 		loseBets:      make([]*bet, 0),
 		winBets:       make([]*bet, 0),
 	}
-	bot.bet = br
-	bot.Message("BETTING BEGINS")
 }
 
-func fortniteEndBet(bot *Bot, u *User) {
-	if !u.IsMod && !u.IsBroadcaster {
-		return
-	}
-	bot.bet.open = false
-	bot.Message("BETTING ENDS")
+type bet struct {
+	userID int
+	amount float64
 }
 
-func fortniteResolveBet(bot *Bot, u *User, message string) {
-	if bot.bet == nil {
-		return
+var br = NewBetRound(false)
+
+func fortniteBet(u *User) (string, error) {
+	if !u.IsMod && !u.IsBroadcaster {
+		return "", nil
 	}
-	if bot.bet.open {
-		return
+
+	br = NewBetRound(true)
+	return "BETTING BEGINS", nil
+}
+
+func fortniteEndBet(u *User) (string, error) {
+	if !u.IsMod && !u.IsBroadcaster {
+		return "", nil
+	}
+	br.open = false
+	return "BETTING ENDS", nil
+}
+
+func fortniteResolveBet(u *User, message string) (string, error) {
+	if br == nil {
+		return "", nil
+	}
+	if br.open {
+		return "", nil
 	}
 	if !u.IsMod && !u.IsBroadcaster {
-		return
+		return "", nil
 	}
-	if len(bot.bet.winBets) == 0 || len(bot.bet.loseBets) == 0 {
-		return
+	if len(br.winBets) == 0 || len(br.loseBets) == 0 {
+		return "", nil
 	}
 	message = strings.ToLower(message)
 	a := strings.Split(message, "!fortniteresolvebet ")
@@ -526,132 +556,235 @@ func fortniteResolveBet(bot *Bot, u *User, message string) {
 	var profitors, debitors []*bet
 	var totalDebits, totalProfits float64
 	if result == "win" {
-		profitors = bot.bet.winBets
-		debitors = bot.bet.loseBets
-		totalDebits = bot.bet.totalLoseBets
-		totalProfits = bot.bet.totalWinBets
+		profitors = br.winBets
+		debitors = br.loseBets
+		totalDebits = br.totalLoseBets
+		totalProfits = br.totalWinBets
 	} else {
-		profitors = bot.bet.loseBets
-		debitors = bot.bet.winBets
-		totalDebits = bot.bet.totalWinBets
-		totalProfits = bot.bet.totalLoseBets
+		profitors = br.loseBets
+		debitors = br.winBets
+		totalDebits = br.totalWinBets
+		totalProfits = br.totalLoseBets
 	}
 
 	for _, b := range debitors {
-		if err := bot.dba.RemoveNuts(b.userID, b.amount); err != nil {
-			fmt.Printf("FortniteResolveBet - RemoveNuts - Error: %s\n", err)
-			return
+		if err := yogiDBClient.RemoveNuts(b.userID, b.amount); err != nil {
+			logerror.Println(err)
+			return "", err
 		}
 	}
 
 	for _, b := range profitors {
 		reward := totalDebits * (b.amount / totalProfits)
-		if err := bot.dba.AddNuts(b.userID, reward); err != nil {
-			fmt.Printf("FortniteResolveBet - AddNuts - Error: %s\n", err)
-			return
+		if err := yogiDBClient.AddNuts(b.userID, reward); err != nil {
+			logerror.Println(err)
+			return "", err
 		}
 	}
-	bot.bet.open = false
-
+	br.open = false
+	br = NewBetRound(false)
 	if result == "win" {
-		bot.Message("PENUTTY_ WON!")
-	} else {
-		bot.Message("PENUTTY LOST.")
+		return "PENUTTY_ WON!", nil
 	}
+	return "PENUTTY LOST.", nil
 }
 
-func fortniteCancelBet(bot *Bot, u *User) {
-	if bot.bet == nil {
-		return
+func fortniteCancelBet(u *User) (string, error) {
+	if br == nil {
+		return "", nil
 	}
 	if !u.IsMod && !u.IsBroadcaster {
-		return
+		return "", nil
 	}
-
-	br := &betRound{
-		open:          false,
-		totalWinBets:  0,
-		totalLoseBets: 0,
-		loseBets:      make([]*bet, 1),
-		winBets:       make([]*bet, 1),
-	}
-	bot.bet = br
-	bot.Message("BET CANCELLED.")
+	br = NewBetRound(false)
+	return "BET CANCELLED.", nil
 }
 
-func win(bot *Bot, u *User, message string) {
+func win(u *User, message string) (string, error) {
 	message = strings.ToLower(message)
-	if bot.bet == nil {
-		return
+	if br == nil {
+		return "", nil
 	}
-	if !bot.bet.open {
-		return
+	if !br.open {
+		return "", nil
 	}
 
-	if _, ok := bot.bet.betees[u.Id]; ok {
-		return
+	if _, ok := br.betees[u.Id]; ok {
+		return "", nil
 	}
 
 	a := strings.Split(message, "!win ")
 	amount, err := strconv.ParseFloat(a[1], 64)
 	if err != nil {
-		fmt.Printf("\nWin - Error: %s", err)
+		logerror.Println(err)
+		return "", err
 	}
 
-	nuts, err := bot.dba.SelectNuts(u.Id)
+	nuts, err := yogiDBClient.SelectNuts(u.Id)
 	if err != nil {
-		fmt.Printf("\nLose - Error: %s", err)
-		return
+		logerror.Println(err)
+		return "", err
 	}
 	if nuts < amount {
-		return
+		return "", nil
 	}
 
 	b := &bet{u.Id, amount}
-	bot.bet.winBets = append(bot.bet.winBets, b)
-	bot.bet.totalWinBets += amount
-	bot.bet.betees[u.Id] = true
-	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty winning!", u.Name, amount))
+	br.winBets = append(br.winBets, b)
+	br.totalWinBets += amount
+	br.betees[u.Id] = true
+	return fmt.Sprintf("@%s bet %v nuts on penutty winning!", u.Name, amount), nil
 }
 
-func lose(bot *Bot, u *User, message string) {
+func lose(u *User, message string) (string, error) {
 	message = strings.ToLower(message)
-	if bot.bet == nil {
-		return
+	if br == nil {
+		return "", nil
 	}
-	if !bot.bet.open {
-		return
+	if !br.open {
+		return "", nil
 	}
 
-	if _, ok := bot.bet.betees[u.Id]; ok {
-		return
+	if _, ok := br.betees[u.Id]; ok {
+		return "", nil
 	}
 
 	a := strings.Split(message, "!lose ")
 	amount, err := strconv.ParseFloat(a[1], 64)
 	if err != nil {
-		fmt.Printf("\nLose - Error: %s", err)
-		return
+		logerror.Println(err)
+		return "", err
 	}
 
-	nuts, err := bot.dba.SelectNuts(u.Id)
+	nuts, err := yogiDBClient.SelectNuts(u.Id)
 	if err != nil {
-		fmt.Printf("\nLose - Error: %s", err)
-		return
+		logerror.Println(err)
+		return "", err
 	}
 	if nuts < amount {
-		return
+		return "", nil
 	}
 
 	b := &bet{u.Id, amount}
-	bot.bet.loseBets = append(bot.bet.loseBets, b)
-	bot.bet.totalLoseBets += amount
-	bot.bet.betees[u.Id] = true
-	bot.Message(fmt.Sprintf("@%s bet %v nuts on penutty losing.", u.Name, amount))
+	br.loseBets = append(br.loseBets, b)
+	br.totalLoseBets += amount
+	br.betees[u.Id] = true
+	return fmt.Sprintf("@%s bet %v nuts on penutty losing.", u.Name, amount), nil
 
 }
 
-var InvalidLineFormat = errors.New("Twitch IRC Line format is invalid.")
+var yogihash map[string]bool
+
+func NewWildYogi(w io.Writer) {
+	var wg sync.WaitGroup
+	for {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n := rand.Int() % 150
+			time.Sleep(time.Duration(n) * time.Minute)
+			r := randomString(5)
+			yogihash[r] = false
+			fmt.Fprintf(w, "A wild yogi has appeared! Who will catch him first? Type !findyogi %s", r)
+		}()
+		wg.Wait()
+	}
+}
+
+func findYogi(u *User, message string) (string, error) {
+	message = strings.ToLower(message)
+	a := strings.Split(message, "!findyogi ")
+	hash := a[1]
+
+	found, ok := yogihash[hash]
+	if found || !ok {
+		return "", nil
+	}
+
+	yogihash[hash] = true
+	reward := 0.1
+	if err := yogiDBClient.AddNuts(u.Id, reward); err != nil {
+		logerror.Println(err)
+		return "", err
+	}
+	return fmt.Sprintf("@%s found Yogi!!! You've been rewarded %v chat points.", u.Name, reward), nil
+}
+
+type TriviaQuestion struct {
+	Question string
+	Answer   string
+}
+
+var triviaQuestion *TriviaQuestion
+
+func NewTriviaQuestion(w io.Writer) {
+	var wg sync.WaitGroup
+	for {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n := (rand.Int() % 20) + 10
+			time.Sleep(time.Duration(n) * time.Minute)
+			r, err := http.Get("https://opentdb.com/api.php?amount=1&category=15&type=multiple")
+			if err != nil {
+				logerror.Println(err)
+				return
+			}
+
+			type result struct {
+				Category          string
+				Type              string
+				Difficulty        string
+				Incorrect_Answers []string
+				Question          string
+				Correct_Answer    string
+			}
+			type body struct {
+				Response_code int
+				Results       []result
+			}
+
+			b := new(body)
+			if err = json.NewDecoder(r.Body).Decode(b); err != nil {
+				logerror.Println(err)
+				return
+			}
+			triviaQuestion = &TriviaQuestion{
+				Question: html.UnescapeString(b.Results[0].Question),
+				Answer:   html.UnescapeString(b.Results[0].Correct_Answer),
+			}
+			fmt.Fprint(w, "%s", triviaQuestion.Question)
+		}()
+		wg.Wait()
+	}
+}
+
+func trivia(u *User, message string) (string, error) {
+	if triviaQuestion.Question == "" {
+		return "", nil
+	}
+
+	a := strings.Split(message, "!trivia ")
+	answer := a[1]
+	if strings.ToLower(triviaQuestion.Answer) != answer {
+		return "", nil
+	}
+
+	reward := 10.0
+	if err := yogiDBClient.AddNuts(u.Id, reward); err != nil {
+		logerror.Println(err)
+		return "", err
+	}
+	triviaQuestion = &TriviaQuestion{}
+	return fmt.Sprintf("@%s has answered the trivia question correctly! You've been rewarded %v nuts!", u.Name, reward), nil
+}
+
+// UTILITY FUNCTIONS
+var (
+	ErrInvalidIdentifiers  = errors.New("Invalid user identifiers.")
+	ErrInvalidBadgesFormat = errors.New("Twitch IRC Badge format is invalid.")
+	ErrInvalidLineFormat   = errors.New("Twitch IRC Line format is invalid.")
+)
 
 func lineToMap(line string) (map[string]string, error) {
 	m := make(map[string]string)
@@ -659,13 +792,15 @@ func lineToMap(line string) (map[string]string, error) {
 	for _, v := range sets {
 		pair := strings.Split(v, "=")
 		if len(pair) != 2 {
-			return m, InvalidLineFormat
+			logerror.Println(ErrInvalidLineFormat)
+			return m, ErrInvalidLineFormat
 		}
 		if pair[0] == "@badges" {
 			var err error
-			m, err = badgesToMap(pair)
+			m, err = badgesToMap(pair[1])
 			if err != nil {
-				fmt.Printf("err: %s\n", err)
+				logerror.Println(err)
+				return m, err
 			}
 		} else {
 			m[pair[0]] = pair[1]
@@ -674,23 +809,30 @@ func lineToMap(line string) (map[string]string, error) {
 	return m, nil
 }
 
-var InvalidBadgesFormat = errors.New("Twitch IRC Badge format is invalid.")
-
-func badgesToMap(badges []string) (map[string]string, error) {
+func badgesToMap(badges string) (map[string]string, error) {
 	m := make(map[string]string)
-	if len(badges) != 2 {
-		return m, InvalidBadgesFormat
-	}
-	bdgs := strings.Split(badges[1], ",")
+	bdgs := strings.Split(badges, ",")
 	if len(bdgs) != 3 {
-		return m, InvalidBadgesFormat
+		logerror.Println(ErrInvalidBadgesFormat)
+		return m, ErrInvalidBadgesFormat
 	}
 	for _, b := range bdgs {
 		set := strings.Split(b, "/")
 		if len(set) != 2 {
-			return m, InvalidBadgesFormat
+			logerror.Println(ErrInvalidBadgesFormat)
+			return m, ErrInvalidBadgesFormat
 		}
 		m[set[0]] = set[1]
 	}
 	return m, nil
+}
+
+const letterBytes = "abcdefghijklmnopqrstuvwxyz"
+
+func randomString(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = letterBytes[rand.Intn(len(letterBytes))]
+	}
+	return string(b)
 }
